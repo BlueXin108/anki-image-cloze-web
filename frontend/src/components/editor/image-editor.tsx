@@ -1,13 +1,14 @@
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
-import { CropIcon, PlusIcon, Redo2Icon, ScanSearchIcon, Trash2Icon, Undo2Icon } from 'lucide-react'
+import { CropIcon, PlusIcon, Redo2Icon, RotateCcwIcon, ScanSearchIcon, Trash2Icon, Undo2Icon } from 'lucide-react'
 
 import type { BBox, CardDraft, MaskRect } from '@/types'
 import { Button } from '@/components/ui/button'
-import { Kbd } from '@/components/ui/kbd'
 import { cn } from '@/lib/utils'
 
 type ResizeHandle = 'n' | 's' | 'e' | 'w' | 'nw' | 'ne' | 'sw' | 'se'
 const HISTORY_LIMIT = 50
+const WHEEL_HISTORY_INTERVAL_MS = 1200
+const WHEEL_COMMIT_DEBOUNCE_MS = 1400
 
 interface EditorSnapshot {
   masks: MaskRect[]
@@ -87,6 +88,8 @@ interface ImageEditorProps {
   footerSlot?: ReactNode
   imageClassName?: string
   focusLayout?: boolean
+  readOnly?: boolean
+  hideMetaBar?: boolean
 }
 
 function resolveDisplayedCrop(draft: CardDraft, imageWidth: number, imageHeight: number): BBox {
@@ -350,7 +353,7 @@ function makeHandle(
     <button
       type="button"
       className={cn(
-        'absolute z-20 rounded-full border border-white/90 bg-sky-500/80 shadow-sm shadow-sky-950/15 transition-opacity',
+        'absolute z-20 rounded-full border border-white/90 bg-amber-400/85 shadow-sm shadow-amber-950/15 transition-opacity',
         shapeClass,
         options?.dimmed && 'opacity-55',
         positions[handle],
@@ -369,10 +372,10 @@ export function ImageEditor({
   onCropCommit,
   showOcrTools = true,
   showCropSubmit = true,
-  shortcutHintText,
   footerSlot,
   imageClassName,
   focusLayout = false,
+  readOnly = false,
 }: ImageEditorProps) {
   const normalizedDraftMasks = normalizeMaskGroups(draft.masks)
   const imageRef = useRef<HTMLImageElement | null>(null)
@@ -385,6 +388,8 @@ export function ImageEditor({
   const undoStackRef = useRef<EditorSnapshot[]>([])
   const redoStackRef = useRef<EditorSnapshot[]>([])
   const wheelHistoryRef = useRef<{ key: string; at: number } | null>(null)
+  const wheelCommitTimeoutRef = useRef<number | null>(null)
+  const wheelPendingMasksRef = useRef<MaskRect[] | null>(null)
   const [localMasks, setLocalMasks] = useState<MaskRect[]>(normalizedDraftMasks)
   const [localCrop, setLocalCrop] = useState<BBox>(resolveDisplayedCrop(draft, imageWidth, imageHeight))
   const [selectedMaskIds, setSelectedMaskIds] = useState<string[]>([])
@@ -393,6 +398,9 @@ export function ImageEditor({
   const [showMaskOverlay, setShowMaskOverlay] = useState(true)
   const [hoveredMaskId, setHoveredMaskId] = useState<string | null>(null)
   const [pointerInsideEditor, setPointerInsideEditor] = useState(false)
+  const [normalViewportWidth, setNormalViewportWidth] = useState<number | null>(null)
+  const [focusViewportSize, setFocusViewportSize] = useState<{ width: number; height: number } | null>(null)
+  const [windowHeight, setWindowHeight] = useState<number>(() => (typeof window === 'undefined' ? 900 : window.innerHeight))
   const normalizedLocalMasks = normalizeMaskGroups(localMasks)
   const selectedMasks = localMasks.filter((mask) => selectedMaskIds.includes(mask.id))
   const selectedGroupBox = boundingBoxOfMasks(selectedMasks)
@@ -428,12 +436,61 @@ export function ImageEditor({
     }
   }
 
+  const captureSnapshot = (): EditorSnapshot => ({
+    masks: cloneMasks(localMasksRef.current),
+    crop: [...localCropRef.current] as BBox,
+  })
+
+  const pushHistorySnapshot = () => {
+    undoStackRef.current = [...undoStackRef.current, captureSnapshot()].slice(-HISTORY_LIMIT)
+    redoStackRef.current = []
+  }
+
+  const cancelPendingWheelCommit = () => {
+    if (wheelCommitTimeoutRef.current !== null && typeof window !== 'undefined') {
+      window.clearTimeout(wheelCommitTimeoutRef.current)
+    }
+    wheelCommitTimeoutRef.current = null
+    wheelPendingMasksRef.current = null
+  }
+
+  const commitMasksImmediate = async (masks: MaskRect[]) => {
+    cancelPendingWheelCommit()
+    wheelHistoryRef.current = null
+    await onMasksCommit(masks)
+  }
+
+  const queueWheelMasksCommit = (masks: MaskRect[]) => {
+    cancelPendingWheelCommit()
+    wheelPendingMasksRef.current = cloneMasks(masks)
+    if (typeof window === 'undefined') {
+      return
+    }
+    wheelCommitTimeoutRef.current = window.setTimeout(() => {
+      wheelCommitTimeoutRef.current = null
+      const pendingMasks = wheelPendingMasksRef.current
+      wheelPendingMasksRef.current = null
+      wheelHistoryRef.current = null
+      if (!pendingMasks) return
+      void onMasksCommit(pendingMasks)
+    }, WHEEL_COMMIT_DEBOUNCE_MS)
+  }
+
+  useEffect(
+    () => () => {
+      cancelPendingWheelCommit()
+    },
+    [],
+  )
+
   useEffect(() => {
     if (drag) return
     const draftChanged = lastDraftIdRef.current !== draft.id
     const nextDraftMasks = normalizeMaskGroups(draft.masks)
     const draftMasksChanged = !sameMasks(lastDraftMasksRef.current, nextDraftMasks)
     if (draftChanged || draftMasksChanged) {
+      cancelPendingWheelCommit()
+      wheelHistoryRef.current = null
       setLocalMasks((current) => (sameMasks(current, nextDraftMasks) ? current : nextDraftMasks))
       lastDraftMasksRef.current = nextDraftMasks
       lastDraftIdRef.current = draft.id
@@ -450,6 +507,8 @@ export function ImageEditor({
     if (drag) return
     const nextCrop = resolveDisplayedCrop(draft, imageWidth, imageHeight)
     if (!sameBox(lastDraftCropRef.current, nextCrop)) {
+      cancelPendingWheelCommit()
+      wheelHistoryRef.current = null
       setLocalCrop((current) => (sameBox(current, nextCrop) ? current : nextCrop))
       lastDraftCropRef.current = nextCrop
     }
@@ -463,19 +522,11 @@ export function ImageEditor({
     localCropRef.current = localCrop
   }, [localCrop])
 
-  const captureSnapshot = (): EditorSnapshot => ({
-    masks: cloneMasks(localMasksRef.current),
-    crop: [...localCropRef.current] as BBox,
-  })
-
-  const pushHistorySnapshot = () => {
-    undoStackRef.current = [...undoStackRef.current, captureSnapshot()].slice(-HISTORY_LIMIT)
-    redoStackRef.current = []
-  }
-
   const applySnapshot = async (snapshot: EditorSnapshot) => {
     const nextMasks = cloneMasks(snapshot.masks)
     const nextCrop = [...snapshot.crop] as BBox
+    cancelPendingWheelCommit()
+    wheelHistoryRef.current = null
     setLocalMasks(nextMasks)
     setLocalCrop(nextCrop)
     localMasksRef.current = nextMasks
@@ -501,6 +552,48 @@ export function ImageEditor({
   }
 
   useEffect(() => {
+    const viewport = editorViewportRef.current
+    if (!viewport) return
+
+    const measure = () => {
+      if (focusLayout) {
+        const viewportPadding = 16
+        setFocusViewportSize({
+          width: Math.max(0, viewport.clientWidth - viewportPadding),
+          height: Math.max(0, viewport.clientHeight - viewportPadding),
+        })
+        return
+      }
+
+      const horizontalPadding = 32
+      setNormalViewportWidth(Math.max(0, viewport.clientWidth - horizontalPadding))
+    }
+
+    measure()
+
+    const observer = new ResizeObserver(() => {
+      measure()
+    })
+    observer.observe(viewport)
+
+    return () => {
+      observer.disconnect()
+    }
+  }, [focusLayout])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+
+    const updateWindowHeight = () => {
+      setWindowHeight(window.innerHeight)
+    }
+
+    updateWindowHeight()
+    window.addEventListener('resize', updateWindowHeight)
+    return () => window.removeEventListener('resize', updateWindowHeight)
+  }, [])
+
+  useEffect(() => {
     const shouldLockScroll = pointerInsideEditor && (selectedMaskIds.length > 0 || hoveredMaskId !== null)
     if (!shouldLockScroll) return
 
@@ -517,16 +610,19 @@ export function ImageEditor({
   }, [hoveredMaskId, pointerInsideEditor, selectedMaskIds.length])
 
   const removeMasksByIds = async (maskIds: string[]) => {
+    if (readOnly) return
     if (maskIds.length === 0) return
     pushHistorySnapshot()
     const maskIdSet = new Set(maskIds)
     const next = localMasksRef.current.filter((mask) => !maskIdSet.has(mask.id))
     setLocalMasks(next)
+    localMasksRef.current = next
     setSelectedMaskIds([])
-    await onMasksCommit(next)
+    await commitMasksImmediate(next)
   }
 
   useEffect(() => {
+    if (readOnly) return
     const onKeyDown = (event: KeyboardEvent) => {
       if (isEditableTarget(event.target)) return
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'z') {
@@ -594,7 +690,7 @@ export function ImageEditor({
 
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [canMergeSelectedMasks, canSplitSelectedMasks, selectedMaskIds])
+  }, [canMergeSelectedMasks, canSplitSelectedMasks, readOnly, selectedMaskIds])
 
   useEffect(() => {
     if (!drag) return
@@ -704,7 +800,7 @@ export function ImageEditor({
           setLocalMasks(next)
           localMasksRef.current = next
           setSelectedMaskIds(masksInGroups(next, active.visitedGroupIds))
-          await onMasksCommit(next)
+          await commitMasksImmediate(next)
         }
         return
       }
@@ -712,7 +808,7 @@ export function ImageEditor({
         await onCropCommit(localCropRef.current)
         return
       }
-      await onMasksCommit(localMasksRef.current)
+      await commitMasksImmediate(localMasksRef.current)
     }
 
     window.addEventListener('pointermove', onPointerMove)
@@ -725,6 +821,7 @@ export function ImageEditor({
 
 
   const beginCropDrag = (event: ReactPointerEvent<HTMLElement>, kind: 'crop-move' | 'crop-resize', handle?: ResizeHandle) => {
+    if (readOnly) return
     const displaySize = getDisplaySize()
     if (displaySize.width < 2 || displaySize.height < 2 || event.altKey || event.button !== 0) return
     event.preventDefault()
@@ -749,6 +846,7 @@ export function ImageEditor({
   }
 
   const beginMaskMove = (event: ReactPointerEvent<HTMLElement>, mask: MaskRect) => {
+    if (readOnly) return
     const displaySize = getDisplaySize()
     if (displaySize.width < 2 || displaySize.height < 2 || event.altKey) return
     if (event.button === 1) {
@@ -784,6 +882,7 @@ export function ImageEditor({
   }
 
   const beginSelectionResize = (event: ReactPointerEvent<HTMLButtonElement>, handle: ResizeHandle) => {
+    if (readOnly) return
     if (!selectedGroupBox || selectedMaskIds.length < 2) return
     const displaySize = getDisplaySize()
     if (displaySize.width < 2 || displaySize.height < 2 || event.button !== 0) return
@@ -807,6 +906,7 @@ export function ImageEditor({
   }
 
   const beginMaskResize = (event: ReactPointerEvent<HTMLButtonElement>, mask: MaskRect, handle: ResizeHandle) => {
+    if (readOnly) return
     const displaySize = getDisplaySize()
     if (displaySize.width < 2 || displaySize.height < 2 || event.button !== 0) return
     event.preventDefault()
@@ -824,6 +924,7 @@ export function ImageEditor({
   }
 
   const beginMaskDraw = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (readOnly) return
     const displaySize = getDisplaySize()
     if (displaySize.width < 2 || displaySize.height < 2) return
     const point = clientToImagePoint(event.clientX, event.clientY)
@@ -875,6 +976,7 @@ export function ImageEditor({
   }
 
   const addMask = async () => {
+    if (readOnly) return
     pushHistorySnapshot()
     const bbox = clampBox(
       [
@@ -903,14 +1005,33 @@ export function ImageEditor({
     setLocalMasks(normalized)
     localMasksRef.current = normalized
     setSelectedMaskIds(normalized.at(-1)?.id ? [normalized.at(-1)!.id] : [])
-    await onMasksCommit(normalized)
+    await commitMasksImmediate(normalized)
   }
 
   const removeSelectedMask = async () => {
+    if (readOnly) return
     await removeMasksByIds(selectedMaskIds)
   }
 
+  const resetEditor = async () => {
+    if (readOnly) return
+    pushHistorySnapshot()
+    cancelPendingWheelCommit()
+    wheelHistoryRef.current = null
+    const nextMasks: MaskRect[] = []
+    const nextCrop: BBox = [0, 0, imageWidth, imageHeight]
+    setLocalMasks(nextMasks)
+    setLocalCrop(nextCrop)
+    localMasksRef.current = nextMasks
+    localCropRef.current = nextCrop
+    setSelectedMaskIds([])
+    setHoveredMaskId(null)
+    setDrag(null)
+    await Promise.all([onMasksCommit(nextMasks), onCropCommit(nextCrop)])
+  }
+
   const mergeSelectedMasksAsCard = async () => {
+    if (readOnly) return
     if (!canMergeSelectedMasks) return
     pushHistorySnapshot()
     const next = mergeMasksIntoCard(localMasksRef.current, selectedMaskIds)
@@ -918,20 +1039,22 @@ export function ImageEditor({
     localMasksRef.current = next
     const mergedGroupIds = [...new Set(next.filter((mask) => selectedMaskIds.includes(mask.id)).map((mask) => maskGroupId(mask)))]
     setSelectedMaskIds(masksInGroups(next, mergedGroupIds))
-    await onMasksCommit(next)
+    await commitMasksImmediate(next)
   }
 
   const splitSelectedMasksToCards = async () => {
+    if (readOnly) return
     if (!canSplitSelectedMasks) return
     pushHistorySnapshot()
     const next = splitMasksIntoCards(localMasksRef.current, selectedMaskIds)
     setLocalMasks(next)
     localMasksRef.current = next
     setSelectedMaskIds(selectedMaskIds)
-    await onMasksCommit(next)
+    await commitMasksImmediate(next)
   }
 
   const beginOrderTrace = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (readOnly) return
     if (event.button !== 1) return
     const displaySize = getDisplaySize()
     if (displaySize.width < 2 || displaySize.height < 2) return
@@ -949,10 +1072,15 @@ export function ImageEditor({
   }
 
   const resizeMasksByWheel = async (maskIds: string[], deltaY: number) => {
+    if (readOnly) return
     if (maskIds.length === 0) return
     const historyKey = maskIds.slice().sort().join('|')
     const now = Date.now()
-    if (!wheelHistoryRef.current || wheelHistoryRef.current.key !== historyKey || now - wheelHistoryRef.current.at > 400) {
+    if (
+      !wheelHistoryRef.current ||
+      wheelHistoryRef.current.key !== historyKey ||
+      now - wheelHistoryRef.current.at > WHEEL_HISTORY_INTERVAL_MS
+    ) {
       pushHistorySnapshot()
     }
     wheelHistoryRef.current = { key: historyKey, at: now }
@@ -968,71 +1096,92 @@ export function ImageEditor({
       }
     })
     setLocalMasks(next)
-    await onMasksCommit(next)
+    localMasksRef.current = next
+    queueWheelMasksCommit(next)
   }
 
   const selectedCount = selectedMaskIds.length
+  const aspectRatio = imageHeight > 0 ? imageWidth / imageHeight : 1
+  const normalMaxHeight = Math.max(240, Math.floor(windowHeight * 0.9))
+  const normalTargetWidth =
+    !focusLayout && normalViewportWidth
+      ? Math.max(120, Math.min(normalViewportWidth, Math.floor(normalMaxHeight * aspectRatio)))
+      : null
+  const focusImageStyle =
+    focusLayout && focusViewportSize
+      ? {
+          maxWidth: `${focusViewportSize.width}px`,
+          maxHeight: `${focusViewportSize.height}px`,
+        }
+      : undefined
+  const resolvedImageClassName = cn(
+    focusLayout
+      ? 'block h-auto w-auto max-w-full object-contain align-top'
+      : 'block h-auto w-auto object-contain align-top',
+    imageClassName,
+  )
+
+  const hasLeadingControls = !readOnly || showOcrTools
 
   return (
-    <div className={cn('flex flex-col gap-4', focusLayout && 'h-full min-h-0')}>
-      <div className="flex flex-wrap items-center gap-2">
-        <Button variant="outline" size="sm" onClick={() => void undo()} disabled={undoStackRef.current.length === 0}>
-          <Undo2Icon data-icon="inline-start" />
-          撤回
-        </Button>
-        <Button variant="outline" size="sm" onClick={() => void redo()} disabled={redoStackRef.current.length === 0}>
-          <Redo2Icon data-icon="inline-start" />
-          重做
-        </Button>
-        <Button variant="outline" size="sm" onClick={addMask}>
-          <PlusIcon data-icon="inline-start" />
-          新建遮罩
-        </Button>
-        <Button variant="outline" size="sm" onClick={removeSelectedMask} disabled={selectedCount === 0}>
-          <Trash2Icon data-icon="inline-start" />
-          {selectedCount > 1 ? `删除选中遮罩（${selectedCount}）` : '删除当前遮罩'}
-        </Button>
-        {showCropSubmit && (
-          <Button variant="outline" size="sm" onClick={() => onCropCommit(localCrop)}>
-            <CropIcon data-icon="inline-start" />
-            提交裁切
-          </Button>
-        )}
-        {showOcrTools && (
-          <Button variant={showOcrOverlay ? 'secondary' : 'outline'} size="sm" onClick={() => setShowOcrOverlay((current) => !current)}>
-            <ScanSearchIcon data-icon="inline-start" />
-            {showOcrOverlay ? '隐藏 OCR 预览' : '显示 OCR 预览'}
-          </Button>
-        )}
-        <Button
-          variant={showMaskOverlay ? 'secondary' : 'outline'}
-          size="sm"
-          className={cn(showMaskOverlay && 'border-sky-400/60 bg-sky-500/10 text-sky-700')}
-          onClick={() => setShowMaskOverlay((current) => !current)}
-        >
-          <ScanSearchIcon data-icon="inline-start" />
-          {showMaskOverlay ? '隐藏遮罩' : '显示遮罩'}
-        </Button>
-        <div className="ml-auto flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
-          <span className="inline-flex items-center gap-1.5">{shortcutHintText || <><Kbd>Alt</Kbd><span>+</span><span>拖动新建遮罩</span></>}</span>
-          <span className="inline-flex items-center gap-1.5"><Kbd>Ctrl</Kbd><span>+</span><span>点击多选</span></span>
-          <span className="inline-flex items-center gap-1.5"><Kbd>Ctrl</Kbd><span>+</span><Kbd>A</Kbd><span>全选</span></span>
-          <span className="inline-flex items-center gap-1.5"><Kbd>1-9</Kbd><span>快速选中</span></span>
-          <span className="inline-flex items-center gap-1.5"><Kbd>Tab</Kbd><span>合并 / 拆分卡片</span></span>
-          <span className="inline-flex items-center gap-1.5"><Kbd>中键</Kbd><span>拖线重排序号</span></span>
-          <span className="inline-flex items-center gap-1.5"><Kbd>Ctrl</Kbd><span>+</span><Kbd>Z</Kbd><span>/</span><Kbd>Y</Kbd><span>撤回重做</span></span>
-          <span className="inline-flex items-center gap-1.5"><Kbd>V</Kbd><span>显隐遮罩</span></span>
-          <span className="inline-flex items-center gap-1.5"><Kbd>R</Kbd><span>显隐 OCR</span></span>
-          <span className="inline-flex items-center gap-1.5"><Kbd>Del</Kbd><span>删除选中</span></span>
-          <span>原图坐标系: {imageWidth} × {imageHeight}</span>
+    <div className={cn('flex flex-col gap-4', focusLayout && 'h-full min-h-0 overflow-hidden')}>
+      {hasLeadingControls ? (
+        <div className="flex flex-wrap items-center gap-2">
+          {!readOnly ? (
+            <>
+              <Button variant="outline" size="sm" onClick={() => void undo()} disabled={undoStackRef.current.length === 0}>
+                <Undo2Icon data-icon="inline-start" />
+                撤回
+              </Button>
+              <Button variant="outline" size="sm" onClick={() => void redo()} disabled={redoStackRef.current.length === 0}>
+                <Redo2Icon data-icon="inline-start" />
+                重做
+              </Button>
+              <Button variant="outline" size="sm" onClick={addMask}>
+                <PlusIcon data-icon="inline-start" />
+                新建遮罩
+              </Button>
+              <Button variant="outline" size="sm" onClick={() => void resetEditor()}>
+                <RotateCcwIcon data-icon="inline-start" />
+                重置编辑区域
+              </Button>
+              <Button variant="outline" size="sm" onClick={removeSelectedMask} disabled={selectedCount === 0}>
+                <Trash2Icon data-icon="inline-start" />
+                {selectedCount > 1 ? `删除选中遮罩（${selectedCount}）` : '删除当前遮罩'}
+              </Button>
+              {showCropSubmit && (
+                <Button variant="outline" size="sm" onClick={() => onCropCommit(localCrop)}>
+                  <CropIcon data-icon="inline-start" />
+                  提交裁切
+                </Button>
+              )}
+            </>
+          ) : null}
+          {showOcrTools && (
+            <Button variant={showOcrOverlay ? 'secondary' : 'outline'} size="sm" onClick={() => setShowOcrOverlay((current) => !current)}>
+              <ScanSearchIcon data-icon="inline-start" />
+              {showOcrOverlay ? '隐藏 OCR 预览' : '显示 OCR 预览'}
+            </Button>
+          )}
+          {!readOnly ? (
+            <Button
+              variant={showMaskOverlay ? 'secondary' : 'outline'}
+              size="sm"
+              className={cn(showMaskOverlay && 'border-amber-400/60 bg-amber-500/10 text-foreground')}
+              onClick={() => setShowMaskOverlay((current) => !current)}
+            >
+              <ScanSearchIcon data-icon="inline-start" />
+              {showMaskOverlay ? '隐藏遮罩' : '显示遮罩'}
+            </Button>
+          ) : null}
         </div>
-      </div>
+      ) : null}
 
       <div
         ref={editorViewportRef}
         className={cn(
           'relative overflow-hidden rounded-2xl border border-border bg-[radial-gradient(circle_at_top,_rgba(255,202,117,0.14),_transparent_42%),linear-gradient(180deg,rgba(10,14,18,0.06),transparent_30%)] p-4',
-          focusLayout && 'min-h-0 flex flex-1 items-start justify-center overflow-hidden p-2',
+          focusLayout && 'min-h-0 flex flex-1 items-center justify-center overflow-hidden p-2',
         )}
         onPointerEnter={() => setPointerInsideEditor(true)}
         onPointerLeave={() => {
@@ -1040,19 +1189,30 @@ export function ImageEditor({
           setHoveredMaskId(null)
         }}
       >
-        <div className={cn('flex justify-center', focusLayout && 'h-full w-full items-start justify-center')}>
-          <div className={cn('inline-block max-w-full rounded-xl border border-border bg-background/90 shadow-sm', focusLayout && 'max-h-full max-w-full overflow-hidden')}>
+        <div className={cn('flex justify-center', focusLayout && 'min-h-full min-w-full items-center justify-center')}>
+          <div className={cn('inline-block max-w-full rounded-xl border border-border bg-background/90 shadow-sm', focusLayout && 'overflow-visible')}>
             <div className="relative inline-block max-w-full align-top">
               <img
                 ref={imageRef}
                 src={sourceImageUrl}
                 alt="Source"
-                className={cn('block h-auto max-h-[70vh] w-auto max-w-full object-contain align-top', imageClassName)}
+                className={resolvedImageClassName}
+                style={
+                  focusLayout
+                    ? focusImageStyle
+                    : normalTargetWidth
+                      ? {
+                          width: `${normalTargetWidth}px`,
+                          maxWidth: '100%',
+                        }
+                      : undefined
+                }
               />
 
               <div
                 className="absolute inset-0"
                 onPointerDown={(event) => {
+                  if (readOnly) return
                   if (event.button === 1) {
                     beginOrderTrace(event)
                     return
@@ -1060,6 +1220,7 @@ export function ImageEditor({
                   beginMaskDraw(event)
                 }}
                 onWheelCapture={(event) => {
+                  if (readOnly) return
                   const activeMaskIds =
                     selectedMaskIds.length > 0 ? selectedMaskIds : hoveredMaskId ? [hoveredMaskId] : []
                   if (activeMaskIds.length === 0 || drag) return
@@ -1072,36 +1233,40 @@ export function ImageEditor({
                   draft.ocr_regions.map((region) => (
                     <div
                       key={region.id}
-                      className="pointer-events-none absolute rounded-md border border-sky-400/60 bg-sky-300/10"
+                      className="pointer-events-none absolute rounded-md border border-border/70 bg-foreground/5"
                       style={toStyle(region.bbox, imageWidth, imageHeight)}
                     >
-                      <span className="absolute -top-6 left-0 rounded-md bg-sky-950/80 px-1.5 py-0.5 text-[11px] text-sky-100">
+                      <span className="absolute -top-6 left-0 rounded-md bg-foreground/80 px-1.5 py-0.5 text-[11px] text-background">
                         {region.text || region.region_type}
                       </span>
                     </div>
                   ))}
 
                 <div
-                  className="pointer-events-none absolute rounded-xl border-2 border-dashed border-emerald-400/90 bg-emerald-300/10"
+                  className="pointer-events-none absolute rounded-xl border-2 border-dashed border-amber-400/90 bg-amber-300/10"
                   style={toStyle(localCrop, imageWidth, imageHeight)}
                 >
-                  <div className="absolute -top-7 left-0 rounded-md bg-emerald-950/90 px-2 py-1 text-xs font-medium text-emerald-100">
+                  <div className="absolute -top-7 left-0 rounded-md bg-amber-950/90 px-2 py-1 text-xs font-medium text-amber-100">
                     裁切框
                   </div>
-                  <div className="pointer-events-auto">
-                    {(['n', 's', 'e', 'w', 'nw', 'ne', 'sw', 'se'] as const).map((handle) =>
-                      makeResizeHotzone(handle, (event, selectedHandle) => beginCropDrag(event, 'crop-resize', selectedHandle)),
-                    )}
-                    {(['nw', 'ne', 'sw', 'se'] as const).map((handle) =>
-                      makeHandle(handle, (event, selectedHandle) => beginCropDrag(event, 'crop-resize', selectedHandle)),
-                    )}
-                  </div>
+                  {!readOnly ? (
+                    <div className="pointer-events-auto">
+                      {(['n', 's', 'e', 'w', 'nw', 'ne', 'sw', 'se'] as const).map((handle) =>
+                        makeResizeHotzone(handle, (event, selectedHandle) => beginCropDrag(event, 'crop-resize', selectedHandle)),
+                      )}
+                      {(['nw', 'ne', 'sw', 'se'] as const).map((handle) =>
+                        makeHandle(handle, (event, selectedHandle) => beginCropDrag(event, 'crop-resize', selectedHandle)),
+                      )}
+                    </div>
+                  ) : null}
                 </div>
 
                 {showMaskOverlay &&
                   localMasks.map((mask) => {
                     const isSelected = selectedMaskIds.includes(mask.id)
-                    const showHandles = (isSelected && selectedMaskIds.length === 1) || (!selectedMaskIds.length && hoveredMaskId === mask.id)
+                    const showHandles =
+                      !readOnly &&
+                      ((isSelected && selectedMaskIds.length === 1) || (!selectedMaskIds.length && hoveredMaskId === mask.id))
                     return (
                       <div
                         key={mask.id}
@@ -1109,9 +1274,9 @@ export function ImageEditor({
                           'absolute rounded-sm border bg-white/60 transition-colors',
                           hoveredMaskId === mask.id && 'bg-white/30',
                           isSelected
-                            ? 'border-sky-500/75 shadow-[0_0_0_2px_rgba(14,165,233,0.14)]'
+                            ? 'border-amber-500/80 shadow-[0_0_0_2px_rgba(245,158,11,0.16)]'
                             : (groupSizeByMaskId.get(mask.id) ?? 1) > 1
-                              ? 'border-cyan-600/45 bg-cyan-50/55 shadow-[0_0_0_1px_rgba(8,145,178,0.08)]'
+                              ? 'border-slate-500/45 bg-slate-100/60 shadow-[0_0_0_1px_rgba(100,116,139,0.08)]'
                             : 'border-amber-500/45 shadow-[0_0_0_1px_rgba(251,191,36,0.08)]',
                         )}
                         style={toStyle(mask.bbox, imageWidth, imageHeight)}
@@ -1143,9 +1308,9 @@ export function ImageEditor({
                     )
                   })}
 
-                {selectedGroupBox && selectedMaskIds.length > 1 ? (
+                {selectedGroupBox && selectedMaskIds.length > 1 && !readOnly ? (
                   <div
-                    className="pointer-events-none absolute rounded-md border border-sky-500/60 border-dashed"
+                    className="pointer-events-none absolute rounded-md border border-amber-500/70 border-dashed"
                     style={toStyle(selectedGroupBox, imageWidth, imageHeight)}
                   >
                     {canMergeSelectedMasks || canSplitSelectedMasks ? (
@@ -1159,14 +1324,11 @@ export function ImageEditor({
                               onClick={() => void (canMergeSelectedMasks ? mergeSelectedMasksAsCard() : splitSelectedMasksToCards())}
                             >
                               {canMergeSelectedMasks ? '合并为一张卡' : '拆回独立卡片'}
-                              <span className="ml-1 inline-flex items-center gap-1">
-                                <Kbd className="min-w-0 px-1">Tab</Kbd>
-                              </span>
                             </Button>
             
                       </div>
                     ) : null}
-                    <div className="pointer-events-none absolute left-1/2 top-full mt-1 -translate-x-1/2 rounded-md border border-sky-200/80 bg-sky-50/80 px-1.5 py-0.5 text-[11px] font-medium text-sky-700 shadow-sm">
+                    <div className="pointer-events-none absolute left-1/2 top-full mt-1 -translate-x-1/2 rounded-md border border-amber-200/80 bg-amber-50/85 px-1.5 py-0.5 text-[11px] font-medium text-amber-900 shadow-sm">
                       已选 {selectedMaskIds.length}
                     </div>
                     <div className="pointer-events-auto">
@@ -1185,7 +1347,7 @@ export function ImageEditor({
 
                 {drag?.kind === 'selection-marquee' ? (
                   <div
-                    className="pointer-events-none absolute rounded-md border border-sky-500/70 border-dashed bg-sky-500/5"
+                    className="pointer-events-none absolute rounded-md border border-amber-500/70 border-dashed bg-amber-500/5"
                     style={toStyle(
                       boxFromPoints(
                         drag.startPoint.x,
@@ -1208,7 +1370,7 @@ export function ImageEditor({
                         .map((point) => `${point.x},${point.y}`)
                         .join(' ')}
                       fill="none"
-                      stroke="rgba(14,165,233,0.95)"
+                      stroke="rgba(245,158,11,0.95)"
                       strokeWidth={12}
                       strokeLinecap="round"
                       strokeLinejoin="round"

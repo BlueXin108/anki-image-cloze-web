@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
-import { ImportIcon, RefreshCcwIcon, SparklesIcon, ZoomInIcon } from 'lucide-react'
+import { DownloadIcon, RefreshCcwIcon, ShieldCheckIcon, ZoomInIcon } from 'lucide-react'
 
-import type { AnkiTemplateStatus, DraftListItem, ImageCompressionPreview, ImageProcessingSettings } from '@/types'
+import type { AnkiConnectionState, DraftListItem } from '@/types'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -10,241 +10,260 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Field, FieldContent, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { Spinner } from '@/components/ui/spinner'
-import { api } from '@/lib/api'
 
-function formatBytes(bytes: number): string {
-  if (!Number.isFinite(bytes) || bytes <= 0) return '0 B'
-  if (bytes < 1024) return `${bytes} B`
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
-  return `${(bytes / (1024 * 1024)).toFixed(2)} MB`
+function formatCheckedAt(value?: string | null): string {
+  if (!value) return '还没有同步记录'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return '还没有同步记录'
+  return date.toLocaleString('zh-CN', {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+}
+
+function stateBadgeLabel(state: AnkiConnectionState['level']) {
+  switch (state) {
+    case 'loading':
+      return '获取中'
+    case 'success':
+      return '已同步'
+    case 'warning':
+      return '需确认'
+    case 'error':
+      return '未就绪'
+    default:
+      return '尚未获取'
+  }
+}
+
+function stateBadgeVariant(state: AnkiConnectionState['level']) {
+  switch (state) {
+    case 'success':
+      return 'default'
+    case 'warning':
+      return 'secondary'
+    case 'error':
+      return 'destructive'
+    default:
+      return 'outline'
+  }
 }
 
 interface ManualRightPanelProps {
   selectedItem: DraftListItem | null
-  imageSettings: ImageProcessingSettings | null
-  onImageSettingsChange: (settings: ImageProcessingSettings) => void
-  onSaveImageSettings: () => void
-  loadingKey: string | null
+  importableCount: number
+  quality: number
+  onQualityChange: (value: number) => void
+  ankiState: AnkiConnectionState
+  onRefreshConnection: () => void
   onImportCurrent: () => void
   onImportAll: () => void
+  loadingKey: string | null
 }
 
 export function ManualRightPanel({
   selectedItem,
-  imageSettings,
-  onImageSettingsChange,
-  onSaveImageSettings,
-  loadingKey,
+  importableCount,
+  quality,
+  onQualityChange,
+  ankiState,
+  onRefreshConnection,
   onImportCurrent,
   onImportAll,
+  loadingKey,
 }: ManualRightPanelProps) {
-  const [preview, setPreview] = useState<ImageCompressionPreview | null>(null)
-  const [previewLoading, setPreviewLoading] = useState(false)
-  const [previewError, setPreviewError] = useState<string | null>(null)
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null)
   const [previewOpen, setPreviewOpen] = useState(false)
-  const [templateStatus, setTemplateStatus] = useState<AnkiTemplateStatus | null>(null)
-  const [templateLoading, setTemplateLoading] = useState(false)
-  const [templateError, setTemplateError] = useState<string | null>(null)
 
   useEffect(() => {
     let cancelled = false
-    if (!selectedItem || !imageSettings) {
-      setPreview(null)
-      setPreviewError(null)
-      setPreviewLoading(false)
-      return
+    let objectUrl: string | null = null
+
+    const buildPreview = async () => {
+      if (!selectedItem?.image_blob) {
+        setPreviewUrl(null)
+        return
+      }
+
+      const imageUrl = URL.createObjectURL(selectedItem.image_blob)
+      try {
+        const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+          const next = new Image()
+          next.onload = () => resolve(next)
+          next.onerror = () => reject(new Error('导出预览图加载失败。'))
+          next.src = imageUrl
+        })
+        const canvas = document.createElement('canvas')
+        canvas.width = image.naturalWidth
+        canvas.height = image.naturalHeight
+        const context = canvas.getContext('2d')
+        if (!context) throw new Error('浏览器不支持导出预览画布。')
+        context.drawImage(image, 0, 0)
+        const blob = await new Promise<Blob>((resolve, reject) => {
+          canvas.toBlob(
+            (value) => {
+              if (value) resolve(value)
+              else reject(new Error('导出预览图生成失败。'))
+            },
+            'image/webp',
+            Math.max(0.1, Math.min(1, quality / 100)),
+          )
+        })
+        objectUrl = URL.createObjectURL(blob)
+        if (!cancelled) {
+          setPreviewUrl(objectUrl)
+        }
+      } catch {
+        if (!cancelled) {
+          setPreviewUrl(null)
+        }
+      } finally {
+        URL.revokeObjectURL(imageUrl)
+      }
     }
 
-    setPreviewLoading(true)
-    setPreviewError(null)
-    void api
-      .getImageCompressionPreview({
-        imageId: selectedItem.image.id,
-        llmImageCompressEnabled: true,
-        llmImageFormat: 'webp',
-        llmImageQuality: imageSettings.llm_image_quality,
-      })
-      .then((result) => {
-        if (!cancelled) setPreview(result)
-      })
-      .catch((error) => {
-        if (!cancelled) {
-          setPreview(null)
-          setPreviewError(error instanceof Error ? error.message : '导出预览生成失败。')
-        }
-      })
-      .finally(() => {
-        if (!cancelled) setPreviewLoading(false)
-      })
+    void buildPreview()
 
     return () => {
       cancelled = true
+      if (objectUrl) {
+        URL.revokeObjectURL(objectUrl)
+      }
     }
-  }, [selectedItem?.image.id, imageSettings?.llm_image_quality])
-
-  const refreshTemplateStatus = async () => {
-    setTemplateLoading(true)
-    setTemplateError(null)
-    try {
-      const result = await api.getManualTemplateStatus()
-      setTemplateStatus(result)
-    } catch (error) {
-      setTemplateStatus(null)
-      setTemplateError(error instanceof Error ? error.message : '模板检查失败。')
-    } finally {
-      setTemplateLoading(false)
-    }
-  }
-
-  useEffect(() => {
-    void refreshTemplateStatus()
-  }, [])
+  }, [quality, selectedItem])
 
   return (
-    <div className="grid gap-5 xl:grid-cols-[minmax(0,0.8fr)_minmax(0,1.45fr)]">
+    <div className="grid gap-5 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.35fr)]">
       <Card className="rounded-[24px] border-border/70 bg-background/85 shadow-none">
         <CardHeader>
-          <CardTitle>手动导出压缩</CardTitle>
-          <CardDescription>这里复用现有 WebP 预览逻辑，但语义改成导出/导入给 Anki 前的压缩质量预览。</CardDescription>
+          <CardTitle>导出质量</CardTitle>
+          <CardDescription>这里控制发往 Anki 的原图压缩质量。值越高，图片越清晰，但占用也会更大。</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          {imageSettings && (
-            <FieldGroup>
-              <Field>
-                <FieldLabel>WebP 质量</FieldLabel>
-                <FieldContent>
-                  <Input
-                    type="number"
-                    value={String(imageSettings.llm_image_quality)}
-                    onChange={(event) => {
-                      const next = Number(event.target.value)
-                      onImageSettingsChange({
-                        ...imageSettings,
-                        llm_image_quality: Number.isFinite(next) ? Math.max(1, Math.min(next, 100)) : imageSettings.llm_image_quality,
-                      })
-                    }}
-                  />
-                  <FieldDescription>手动模式下改成 1~100，直接控制最终导出图片的压缩质量。</FieldDescription>
-                </FieldContent>
-              </Field>
-            </FieldGroup>
-          )}
+          <FieldGroup>
+            <Field>
+              <FieldLabel>WebP 质量</FieldLabel>
+              <FieldContent>
+                <Input
+                  type="number"
+                  value={String(quality)}
+                  onChange={(event) => {
+                    const next = Number(event.target.value)
+                    onQualityChange(Number.isFinite(next) ? Math.max(1, Math.min(next, 100)) : quality)
+                  }}
+                />
+                <FieldDescription>默认 80。第一版不做更多复杂导出参数，先把核心发卡链路跑通。</FieldDescription>
+              </FieldContent>
+            </Field>
+          </FieldGroup>
+
+          <Alert className="border-border/60 bg-muted/20">
+            <AlertTitle>当前导出范围</AlertTitle>
+            <AlertDescription>
+              {selectedItem
+                ? `当前图片已有 ${selectedItem.draft.masks.length} 个遮罩，导出时会按遮罩分组拆成独立卡片。`
+                : '先在左侧选一张图片，再检查这张图会导出多少张卡片。'}
+            </AlertDescription>
+          </Alert>
 
           {selectedItem ? (
-            previewLoading ? (
-              <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                <Spinner />
-                正在生成导出预览...
-              </div>
-            ) : previewError ? (
-              <Alert>
-                <AlertTitle>导出预览失败</AlertTitle>
-                <AlertDescription>{previewError}</AlertDescription>
-              </Alert>
-            ) : preview ? (
-              <div className="space-y-3">
-                <div className="flex flex-wrap gap-2">
-                  <Badge variant="secondary">WebP 质量 {preview.quality}</Badge>
-                  <Badge variant="outline">压缩后 {formatBytes(preview.byte_size)}</Badge>
-                  <Badge variant="outline">原图 {formatBytes(preview.original_byte_size)}</Badge>
+            previewUrl ? (
+              <button
+                type="button"
+                onClick={() => setPreviewOpen(true)}
+                className="flex w-full items-center gap-3 rounded-2xl border border-border/60 bg-muted/20 p-3 text-left transition hover:border-primary/40"
+              >
+                <img src={previewUrl} alt="导出预览" className="h-24 w-24 rounded-xl border border-border/60 object-cover" />
+                <div className="min-w-0 flex-1">
+                  <div className="text-sm font-medium">导出预览图</div>
+                  <div className="mt-1 text-sm text-muted-foreground">
+                    这里展示当前质量下会送去 Anki 的压缩预览。点击可放大查看。
+                  </div>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => setPreviewOpen(true)}
-                  className="flex w-full items-center justify-between rounded-2xl border border-border/60 bg-background px-4 py-4 text-left transition hover:border-primary/40"
-                >
-                  <div className="flex flex-col gap-1">
-                    <div className="text-sm font-medium">导出图像预览默认折叠</div>
-                    <div className="text-sm text-muted-foreground">
-                      不再直接显示缩略图，避免影响这一栏的重心。需要时点这里直接放大查看。
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                    <span>点击放大</span>
-                    <ZoomInIcon className="size-4" />
-                  </div>
-                </button>
-              </div>
-            ) : null
+                <ZoomInIcon className="size-4 shrink-0 text-muted-foreground" />
+              </button>
             ) : (
-              <div className="text-sm text-muted-foreground">先在左侧选一张图，才会显示导出压缩预览。</div>
-          )}
-
-          <Button className="w-full" onClick={onSaveImageSettings} disabled={!imageSettings}>
-            {loadingKey === 'save-image-settings' ? <Spinner data-icon="inline-start" /> : <SparklesIcon data-icon="inline-start" />}
-            保存导出压缩设置
-          </Button>
+              <div className="rounded-2xl border border-border/60 bg-muted/20 px-4 py-3 text-sm text-muted-foreground">
+                当前还没有可用的导出预览图。
+              </div>
+            )
+          ) : null}
         </CardContent>
       </Card>
 
-      <Card className="rounded-[24px] border-border/70 bg-[linear-gradient(135deg,rgba(250,251,255,0.98),rgba(239,246,255,0.96))] shadow-none">
+      <Card className="rounded-[24px] border-border/70 bg-[linear-gradient(135deg,rgba(255,251,244,0.98),rgba(242,247,255,0.96))] shadow-none">
         <CardHeader>
-          <CardTitle>导入到 Anki</CardTitle>
-          <CardDescription>这是手动模式最重要的出口区域。会优先检查 `Image Occlusion Enhanced`，若同名模板已存在，则自动使用新的副本模板，避免覆盖旧内容。</CardDescription>
+          <CardTitle>连接并导出到 Anki</CardTitle>
+          <CardDescription>网页会直接尝试连接你本机的 AnkiConnect。桌面浏览器是首发支持场景，手机浏览器暂时不保证可用。</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          {templateLoading ? (
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <Spinner />
-              正在检查模板...
+          <div className="space-y-3 rounded-2xl border border-border/60 bg-muted/20 p-3">
+            <div className="flex flex-wrap gap-2">
+              <Badge variant={stateBadgeVariant(ankiState.level)}>{stateBadgeLabel(ankiState.level)}</Badge>
+              <Badge variant="outline">{ankiState.decks.length} 个牌组</Badge>
+              <Badge variant="outline">最近同步：{formatCheckedAt(ankiState.lastCheckedAt)}</Badge>
+              {ankiState.templateStatus && (
+                <Badge variant="outline">
+                  {ankiState.templateStatus.using_copy ? '使用副本模板' : '使用主模板'}
+                </Badge>
+              )}
             </div>
-          ) : templateError ? (
-            <Alert>
-              <AlertTitle>模板检查失败</AlertTitle>
-              <AlertDescription>{templateError}</AlertDescription>
-            </Alert>
-          ) : templateStatus ? (
-            <div className="space-y-3 rounded-2xl border border-border/60 bg-muted/20 p-3">
-              <div className="flex flex-wrap gap-2">
-                <Badge variant="secondary">{templateStatus.active_template_name}</Badge>
-                <Badge variant="outline">{templateStatus.using_copy ? '当前使用副本模板' : '当前使用主模板'}</Badge>
-              </div>
+            <div className="text-sm font-medium">{ankiState.title}</div>
+            <div className="text-sm text-muted-foreground">{ankiState.message}</div>
+            {ankiState.templateStatus && (
               <div className="text-sm text-muted-foreground">
-                {templateStatus.exact_exists
-                  ? '检测到同名模板已存在。手动模式不会覆盖它，而会使用一个新的副本模板。'
-                  : '当前没有同名模板。首次导入时会自动创建。'}
+                当前模板：{ankiState.templateStatus.active_template_name}
               </div>
-            </div>
-          ) : null}
+            )}
+          </div>
+
+          <Alert>
+            <ShieldCheckIcon data-icon="inline-start" />
+            <AlertTitle>连接失败时该检查什么</AlertTitle>
+            <AlertDescription>
+              先确认 Anki 已打开、AnkiConnect 已安装并允许来自当前网页的访问。如果你是在远端网页里打开本站，只要本机插件已放行，这条链路就有机会直接打通。
+            </AlertDescription>
+          </Alert>
 
           <div className="grid gap-3">
-            <Button variant="outline" onClick={() => void refreshTemplateStatus()}>
-              <RefreshCcwIcon data-icon="inline-start" />
-              重新检查模板
+            <Button variant="outline" onClick={onRefreshConnection}>
+              {loadingKey === 'refresh-anki' ? <Spinner data-icon="inline-start" /> : <RefreshCcwIcon data-icon="inline-start" />}
+              重新检测 Anki 连接
             </Button>
             <Button
               className="h-14 text-base font-semibold shadow-sm"
               onClick={onImportCurrent}
-              disabled={!selectedItem || (selectedItem.draft.masks.length ?? 0) === 0}
+              disabled={!selectedItem || selectedItem.draft.masks.length === 0}
             >
-              {loadingKey === 'manual-import-current' ? <Spinner data-icon="inline-start" /> : <ImportIcon data-icon="inline-start" />}
-              导入当前图片的所有遮罩卡片
+              {loadingKey === 'manual-import-current' ? <Spinner data-icon="inline-start" /> : <DownloadIcon data-icon="inline-start" />}
+              导出当前图片的全部卡片
             </Button>
             <Button
               variant="secondary"
               className="h-14 text-base font-semibold"
               onClick={onImportAll}
+              disabled={importableCount === 0}
             >
-              {loadingKey === 'manual-import-all' ? <Spinner data-icon="inline-start" /> : <ImportIcon data-icon="inline-start" />}
-              导入当前手动模式下全部图片
+              {loadingKey === 'manual-import-all' ? <Spinner data-icon="inline-start" /> : <DownloadIcon data-icon="inline-start" />}
+              导出当前项目全部卡片
             </Button>
           </div>
         </CardContent>
       </Card>
 
-      {preview && (
-        <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
-          <DialogContent className="sm:max-w-5xl">
-            <DialogHeader>
-              <DialogTitle>导出图像预览</DialogTitle>
-              <DialogDescription>这里展示的是压缩后会进入 Anki 的图片版本。</DialogDescription>
-            </DialogHeader>
-            <div className="overflow-hidden rounded-2xl border border-border/60 bg-muted/20">
-              <img src={preview.preview_data_url} alt="导出图像放大预览" className="max-h-[75vh] w-full object-contain" />
-            </div>
-          </DialogContent>
-        </Dialog>
-      )}
+      <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
+        <DialogContent className="sm:max-w-4xl">
+          <DialogHeader>
+            <DialogTitle>导出预览图</DialogTitle>
+            <DialogDescription>这里展示当前质量设置下，准备发往 Anki 的图片版本。</DialogDescription>
+          </DialogHeader>
+          <div className="overflow-hidden rounded-2xl border border-border/60 bg-muted/20">
+            {previewUrl ? <img src={previewUrl} alt="导出预览图放大" className="max-h-[70vh] w-full object-contain" /> : null}
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

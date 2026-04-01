@@ -1,13 +1,15 @@
-# Anki Image Cloze Prototype
+# Anki Image Cloze Web Workbench
 
-这是一个 Anki 图像挖空工作台原型，目标是把“知识点截图 -> OCR / 路由 / LLM 建议 -> 人工确认 -> 导出到 Anki”这条链路跑顺。
+这是一个面向 Vercel 和静态部署场景的 Anki 图像挖空网页工作台。当前主目标是把“导入图片 -> 手动裁剪 -> 画遮罩 -> 按组预览 -> 直接导入 Anki”这条链路跑顺。
 
-当前有两条主使用路径：
+当前产品形态：
 
-- `流水线模式`
-  - 适合批量扫描、OCR、路由、LLM 建议、审核后导出
 - `手动模式`
-  - 适合直接裁剪、画遮罩、分组遮罩、预览并导出
+  - 已完成
+  - 支持多图上传、文件夹导入、浏览器本地保存、即时预览、直接连接本机 AnkiConnect
+- `流水线模式`
+  - 当前保留 UI 占位
+  - 后续再逐步接回 OCR、自动归类或自动遮罩能力
 
 ## 文档入口
 
@@ -26,10 +28,11 @@
 
 - `frontend/`
   - Vite + React + TypeScript
-  - 主工作台 UI、编辑器、手动模式、审核工作区
+  - 纯前端网页工作台
+  - 图像编辑器、浏览器本地保存、AnkiConnect 直连
 - `backend/`
-  - FastAPI + 本地存储
-  - OCR、LLM、渲染、Anki 导出/导入
+  - 历史本地版原型后端
+  - 当前这条网页线不依赖它运行
 - `docs/`
   - 项目文档、架构说明、工作流、踩坑记录
 
@@ -47,39 +50,17 @@ npm run dev
 
 - `http://127.0.0.1:5173`
 
-如果后端端口不一样，可复制 `frontend/.env.example` 为 `frontend/.env`：
+这条网页线默认不需要启动后端。
 
-```env
-VITE_API_BASE_URL=http://127.0.0.1:8000
-```
+## Anki 连接说明
 
-### 后端
+- 导入会直接尝试连接本机 `http://127.0.0.1:8765`
+- 请先打开 Anki，并安装 / 启用 AnkiConnect
+- 如果你是从远端网页访问本站，需要在 AnkiConnect 里允许来自当前网页的访问
+- 当前首发重点支持桌面浏览器
 
-```powershell
-cd backend
-python -m venv .venv
-```
+## 部署建议
 
-安装核心依赖：
-
-```powershell
-.venv\Scripts\python.exe -m pip install fastapi uvicorn[standard] pydantic-settings pillow httpx python-multipart
-```
-
-安装 OCR：
-
-```powershell
-.venv\Scripts\python.exe -m pip install rapidocr_onnxruntime
-```
-
-启动：
-
-```powershell
-.venv\Scripts\python.exe -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
-```
-
-## 当前建议
-
-- 大改之前，先把此项目整理成独立 Git 仓库
-- 再做一个基线提交
-- 然后再考虑新工作树 / web-server 版本分线
+- 当前前端适合直接部署到 Vercel
+- 部署根目录指向 `frontend/`
+- 这条网页线不依赖自建服务或 Vercel Functions

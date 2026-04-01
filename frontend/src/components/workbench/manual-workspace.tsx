@@ -1,7 +1,9 @@
-import { useEffect, useState, type ReactNode } from 'react'
-import { ShrinkIcon, ZoomInIcon } from 'lucide-react'
+import { memo, useEffect, useMemo, useState } from 'react'
+import { createPortal } from 'react-dom'
+import { ZoomInIcon } from 'lucide-react'
 
 import { ImageEditor } from '@/components/editor/image-editor'
+import { FocusEditorDialog } from '@/components/workbench/focus-editor-dialog'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -12,61 +14,74 @@ import {
   EmptyHeader,
   EmptyTitle,
 } from '@/components/ui/empty'
+import { Kbd } from '@/components/ui/kbd'
 import { ScrollArea } from '@/components/ui/scroll-area'
-import type { CardDraft, DraftListItem, MaskRect } from '@/types'
+import { groupMasksByCard, renderDraftPreviewSet } from '@/lib/manual-preview'
+import { cn } from '@/lib/utils'
+import type { CardDraft, DraftListItem, ManualPreviewSet, MaskRect } from '@/types'
 
 interface ManualWorkspaceProps {
   selectedItem: DraftListItem | null
-  apiBaseUrl: string
   onMasksCommit: (masks: CardDraft['masks']) => Promise<void>
   onCropCommit: (bbox: [number, number, number, number]) => Promise<void>
-  deckContent?: ReactNode
-}
-
-function buildRenderedImageUrl(apiBaseUrl: string, path: string | null | undefined, fingerprint: string | null | undefined): string | null {
-  if (!path) return null
-  const version = fingerprint || 'render'
-  return `${apiBaseUrl}${path}?v=${encodeURIComponent(version)}`
+  focusShortcutEnabled?: boolean
+  onEditorHoverChange?: (hovered: boolean) => void
 }
 
 function maskTitle(mask: MaskRect, index: number): string {
   return mask.label?.trim() || `遮罩 ${index + 1}`
 }
 
-function maskGroupId(mask: MaskRect): string {
-  return mask.card_group_id || mask.id
-}
+// 提取你提供的完整快捷键清单
+const EDITOR_SHORTCUTS = [
+  { key: 'Alt + 拖动', action: '新建遮罩' },
+  { key: 'Ctrl + 点击', action: '多选' },
+  { key: 'Ctrl + A', action: '全选' },
+  { key: '1-9', action: '快速选中' },
+  { key: 'Tab', action: '合并/拆分卡片' },
+  { key: '中键', action: '拖线重排序号' },
+  { key: 'Ctrl + Z/Y', action: '撤回重做' },
+  { key: 'V', action: '显隐遮罩' },
+  { key: 'R', action: '显隐 OCR' },
+  { key: 'Del', action: '删除选中' },
+]
 
-function groupedMasks(masks: MaskRect[]) {
-  const grouped = new Map<string, { groupId: string; order: number; masks: MaskRect[] }>()
-  masks.forEach((mask, index) => {
-    const groupId = maskGroupId(mask)
-    const orderCandidate = mask.card_order ?? index + 1
-    const current = grouped.get(groupId)
-    if (current) {
-      current.masks.push(mask)
-      current.order = Math.min(current.order, orderCandidate)
-      return
-    }
-    grouped.set(groupId, { groupId, order: orderCandidate, masks: [mask] })
-  })
-  return [...grouped.values()].sort((a, b) => a.order - b.order)
-}
-
-export function ManualWorkspace({
+export const ManualWorkspace = memo(function ManualWorkspace({
   selectedItem,
-  apiBaseUrl,
   onMasksCommit,
   onCropCommit,
-  deckContent,
+  focusShortcutEnabled = true,
+  onEditorHoverChange,
 }: ManualWorkspaceProps) {
   const [previewOpen, setPreviewOpen] = useState(false)
   const [previewTitle, setPreviewTitle] = useState('')
   const [previewDescription, setPreviewDescription] = useState('')
   const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null)
   const [focusMode, setFocusMode] = useState(false)
+  const [previewGroupId, setPreviewGroupId] = useState<string | null>(null)
+  const [previewSet, setPreviewSet] = useState<ManualPreviewSet>({ frontUrl: null, backUrl: null })
+  const [previewLoading, setPreviewLoading] = useState(false)
+  
+  // Hover 状态控制与 Portal 挂载状态
+  const [isEditorHovered, setIsEditorHovered] = useState(false)
+  const [mounted, setMounted] = useState(false)
+
+  // 确保 Portal 仅在客户端渲染挂载
+  useEffect(() => {
+    setMounted(true)
+  }, [])
 
   useEffect(() => {
+    onEditorHoverChange?.(isEditorHovered && !focusMode)
+  }, [focusMode, isEditorHovered, onEditorHoverChange])
+
+  const groupedCardMasks = useMemo(
+    () => (selectedItem ? groupMasksByCard(selectedItem.draft.masks) : []),
+    [selectedItem],
+  )
+
+  useEffect(() => {
+    if (!focusShortcutEnabled) return
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key.toLowerCase() !== 'q') return
       const target = event.target
@@ -79,25 +94,74 @@ export function ManualWorkspace({
 
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [])
+  }, [focusShortcutEnabled])
+
+  useEffect(() => {
+    if (!selectedItem) {
+      setPreviewGroupId(null)
+      setPreviewSet({ frontUrl: null, backUrl: null })
+      return
+    }
+
+    const firstGroupId = groupMasksByCard(selectedItem.draft.masks)[0]?.groupId ?? null
+    setPreviewGroupId((current) => {
+      if (current && groupedCardMasks.some((group) => group.groupId === current)) {
+        return current
+      }
+      return firstGroupId
+    })
+  }, [groupedCardMasks, selectedItem])
+
+  useEffect(() => {
+    let cancelled = false
+    if (!selectedItem?.image.source_url) {
+      setPreviewSet({ frontUrl: null, backUrl: null })
+      return
+    }
+
+    setPreviewLoading(true)
+    void renderDraftPreviewSet({
+      draft: selectedItem.draft,
+      sourceUrl: selectedItem.image.source_url,
+      imageWidth: selectedItem.image.width,
+      imageHeight: selectedItem.image.height,
+      selectedGroupId: previewGroupId,
+    })
+      .then((next) => {
+        if (!cancelled) {
+          setPreviewSet(next)
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setPreviewSet({ frontUrl: null, backUrl: null })
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setPreviewLoading(false)
+        }
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [previewGroupId, selectedItem])
 
   if (!selectedItem) {
     return (
       <div className="flex h-full items-center justify-center p-6">
         <Empty className="max-w-xl border-border bg-muted/20">
           <EmptyHeader>
-            <EmptyTitle>等待选择图片</EmptyTitle>
-            <EmptyDescription>切到手动模式后，从左侧选一张图，就可以只专注于裁剪、遮罩和制卡。</EmptyDescription>
+            <EmptyTitle>等待导入图片</EmptyTitle>
+            <EmptyDescription>先从顶部上传图片或导入文件夹，然后在左侧选一张图开始编辑。</EmptyDescription>
           </EmptyHeader>
         </Empty>
       </div>
     )
   }
 
-  const groupedCardMasks = groupedMasks(selectedItem.draft.masks)
   const expectedCardCount = groupedCardMasks.length
-  const frontPreviewUrl = buildRenderedImageUrl(apiBaseUrl, selectedItem.draft.front_image_url, selectedItem.draft.render_fingerprint)
-  const backPreviewUrl = buildRenderedImageUrl(apiBaseUrl, selectedItem.draft.back_image_url, selectedItem.draft.render_fingerprint)
 
   const openPreview = (title: string, description: string, imageUrl: string | null) => {
     if (!imageUrl) return
@@ -108,35 +172,93 @@ export function ManualWorkspace({
   }
 
   const renderEditor = (mode: 'normal' | 'focus') => (
-    <ImageEditor
-      key={`manual-${mode}-${selectedItem.draft.id}`}
-      draft={selectedItem.draft}
-      sourceImageUrl={selectedItem.draft.source_image_url ? `${apiBaseUrl}${selectedItem.draft.source_image_url}` : ''}
-      imageWidth={selectedItem.image.width}
-      imageHeight={selectedItem.image.height}
-      onMasksCommit={onMasksCommit}
-      onCropCommit={onCropCommit}
-      showOcrTools={false}
-      showCropSubmit={false}
-      shortcutHintText="Q：聚焦模式  Alt + 鼠标拖动：直接画遮罩"
-      imageClassName={mode === 'focus' ? 'max-h-[calc(80vh-9rem)] max-w-full' : undefined}
-      focusLayout={false}
-    />
+    <div
+      className={cn(
+        'relative w-full transition-[transform,box-shadow,filter] duration-300 brightness-95',
+        isEditorHovered && !focusMode && 'z-10 brightness-100  drop-shadow-[10px_0px_2px_rgba(24,18,8,0.04)]',
+      )}
+      onMouseEnter={() => setIsEditorHovered(true)}
+      onMouseLeave={() => setIsEditorHovered(false)}
+    >
+      <ImageEditor
+        key={`manual-${mode}-${selectedItem.draft.id}`}
+        draft={selectedItem.draft}
+        sourceImageUrl={selectedItem.image.source_url || ''}
+        imageWidth={selectedItem.image.width}
+        imageHeight={selectedItem.image.height}
+        onMasksCommit={onMasksCommit}
+        onCropCommit={onCropCommit}
+        showOcrTools={false}
+        showCropSubmit={false}
+        imageClassName={mode === 'focus' ? 'max-h-[calc(90vh-9rem)] max-w-full' : undefined}
+        focusLayout={false}
+        hideMetaBar
+      />
+    </div>
   )
 
   return (
     <div className="flex h-full flex-col overflow-hidden p-4">
+      
+     
+     {/* 核心修复：利用 createPortal 将元素直接注入 document.body。
+        彻底规避 ScrollArea 中的 transform 属性造成的 fixed 失效问题。
+      */}
+
+     {mounted && createPortal(
+        <div
+          className={cn(
+            // 1. 定位与整体布局：固定在屏幕左侧，占满高度，改为顶对齐 (items-start)
+            // px-6 控制整体左侧间距，pt-10 控制顶部间距
+            'pointer-events-none fixed inset-y-0 left-0 z-[99999] flex flex-col items-start pt-10 px-10 transition-all duration-300',
+            // 2. 渐变背景：从左到右 (to-r)，由白变透明。
+            // pr-24 控制白色渐变背景的宽度，确保其涵盖最长的文字
+            'bg-gradient-to-r from-white/100 via-white/98 pr-50 to-transparent',
+            // 3. 动画状态：改为横向位移 (translate-x)
+            isEditorHovered && !focusMode ? 'translate-x-0 opacity-100' : '-translate-x-6 opacity-0'
+          )}
+        >
+          {/* 1. 第一层：文字提示与横线（移到上方作为列表标题） */}
+          <div className="flex w-full flex-col items-start mb-4">
+            <div className="text-[12px] font-semibold tracking-wide text-zinc-800">
+              编辑快捷键
+            </div>
+            {/* max-w-[80px] 限制横线宽度，在左侧更精致 */}
+            <div className="mt-1.5 h-px w-full max-w-[80px] bg-zinc-200" />
+          </div>
+
+          {/* 2. 第二层：快捷键列表（独立的纵向 Flex 容器） */}
+          {/* gap-y-3 控制列表项之间的行距 */}
+          <div className="flex flex-col items-start gap-y-3">
+            {EDITOR_SHORTCUTS.map((sc, idx) => (
+              <div
+                key={idx}
+                // py-0.5 增加微小的点击/视觉区域
+                className="flex items-center gap-2.5 text-xs font-bold py-0.5"
+              >
+                {/* 统一 Kbd 的外层容器，保证 Kbd 宽度不齐时文字依然对齐 */}
+                <div className="flex w-20 justify-end">
+                  <Kbd>{sc.key}</Kbd>
+                </div>
+                <span className="text-zinc-700 font-medium">{sc.action}</span>
+              </div>
+            ))}
+          </div>
+
+          <div className='mt-8 text-xs text-gray-400/90'>鼠标移出编辑区域以关闭侧栏</div>
+        </div>,
+        document.body
+      )}
+
       {!focusMode ? (
         <ScrollArea className="h-full pr-3">
-          <div className="flex flex-col gap-4">
-            {deckContent}
-
-            <Card className="border-border/70 bg-background/80">
-              <CardHeader className="gap-3">
+          <div className="flex flex-col gap-4 p-2">
+            <Card className="border-border/70 bg-background/80 ring-0">
+              <CardHeader className={cn('gap-3 transition-[opacity,filter] duration-200 border-b-[0.8px] border-border/70', isEditorHovered && 'opacity-60 saturate-75')}>
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div className="space-y-1">
                     <CardTitle>手动图像编辑</CardTitle>
-                    <CardDescription>这里不显示 OCR、归档和流水线信息，只保留纯图像编辑和最终制卡需要的内容。</CardDescription>
+                    <CardDescription>这里只保留裁剪、遮罩、分组与制卡需要的核心动作，彻底脱离后端工作流。</CardDescription>
                   </div>
                   <Button variant="outline" size="sm" onClick={() => setFocusMode(true)}>
                     <ZoomInIcon data-icon="inline-start" />
@@ -144,111 +266,110 @@ export function ManualWorkspace({
                   </Button>
                 </div>
               </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="flex flex-wrap gap-2">
-                  <Badge variant="secondary">{expectedCardCount} 个遮罩</Badge>
-                  <Badge variant="outline">将生成 {expectedCardCount} 张卡片</Badge>
-                  <Badge variant="outline">{selectedItem.image.width} × {selectedItem.image.height}</Badge>
-                </div>
-
+              <CardContent className="pt-2">
                 {renderEditor('normal')}
               </CardContent>
             </Card>
 
-            <div className="grid gap-4 xl:grid-cols-2">
-              <Card className="border-border/70 bg-background/80">
-                <CardHeader>
-                  <CardTitle>问题面预览</CardTitle>
-                  <CardDescription>这里沿用现有渲染预览，方便在手动模式里快速检查遮罩整体效果。</CardDescription>
-                </CardHeader>
-                <CardContent className="min-h-[260px]">
-                  {frontPreviewUrl ? (
-                    <button
-                      type="button"
-                      onClick={() => openPreview('问题面预览', '点击放大查看当前问题面渲染结果。', frontPreviewUrl)}
-                      className="w-full overflow-hidden rounded-xl border border-border bg-muted/20 text-left transition hover:border-primary/40"
-                    >
-                      <img src={frontPreviewUrl} alt="Front preview" className="max-h-[420px] w-full object-contain" />
-                      <div className="flex items-center justify-between gap-3 border-t border-border/60 px-3 py-2 text-sm text-muted-foreground">
-                        <span>点击放大查看</span>
-                        <ZoomInIcon className="size-4" />
-                      </div>
-                    </button>
-                  ) : (
-                    <Empty className="min-h-[220px] border-border bg-muted/30">
-                      <EmptyHeader>
-                        <EmptyTitle>还没有渲染预览</EmptyTitle>
-                        <EmptyDescription>编辑完遮罩后，手动模式也会继续使用现有预览链路。</EmptyDescription>
-                      </EmptyHeader>
-                    </Empty>
-                  )}
-                </CardContent>
-              </Card>
-              <Card className="border-border/70 bg-background/80">
-                <CardHeader>
-                  <CardTitle>答案面预览</CardTitle>
-                  <CardDescription>最终导入 Anki 时会改用专用模板，但这里仍保留直观的图片预览帮助你查错。</CardDescription>
-                </CardHeader>
-                <CardContent className="min-h-[260px]">
-                  {backPreviewUrl ? (
-                    <button
-                      type="button"
-                      onClick={() => openPreview('答案面预览', '点击放大查看当前答案面渲染结果。', backPreviewUrl)}
-                      className="w-full overflow-hidden rounded-xl border border-border bg-muted/20 text-left transition hover:border-primary/40"
-                    >
-                      <img src={backPreviewUrl} alt="Back preview" className="max-h-[420px] w-full object-contain" />
-                      <div className="flex items-center justify-between gap-3 border-t border-border/60 px-3 py-2 text-sm text-muted-foreground">
-                        <span>点击放大查看</span>
-                        <ZoomInIcon className="size-4" />
-                      </div>
-                    </button>
-                  ) : (
-                    <Empty className="min-h-[220px] border-border bg-muted/30">
-                      <EmptyHeader>
-                        <EmptyTitle>等待渲染</EmptyTitle>
-                        <EmptyDescription>当前还没有可用的答案面预览。</EmptyDescription>
-                      </EmptyHeader>
-                    </Empty>
-                  )}
-                </CardContent>
-              </Card>
-            </div>
-
-            <Card className="border-border/70 bg-background/80">
+            {/* 以下保持原有的预览布局 */}
+            <Card className={cn('border-border/70 bg-background/80 transition-[opacity,filter] duration-200', isEditorHovered && 'opacity-45 saturate-75')}>
               <CardHeader>
-                <CardTitle>这张图会拆成哪些卡片</CardTitle>
-                <CardDescription>这里改成更紧凑的形式，并放在最终图片预览下方，方便一眼对照。</CardDescription>
+                <CardTitle>预览当前卡片分组</CardTitle>
+                <CardDescription>点下面任意一组，就会切换问题面和答案面的即时预览。</CardDescription>
               </CardHeader>
               <CardContent>
-                {selectedItem.draft.masks.length > 0 ? (
+                {groupedCardMasks.length > 0 ? (
                   <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
                     {groupedCardMasks.map((group, index) => (
-                      <div key={group.groupId} className="rounded-xl border border-border/60 bg-muted/20 px-3 py-2">
+                      <button
+                        key={group.groupId}
+                        type="button"
+                        onClick={() => setPreviewGroupId(group.groupId)}
+                        className={`rounded-xl border px-3 py-2 text-left transition ${
+                          group.groupId === previewGroupId
+                            ? 'border-amber-300/90 bg-amber-50/70 ring-2 ring-amber-300/20'
+                            : 'border-border/60 bg-muted/20 hover:border-primary/40'
+                        }`}
+                      >
                         <div className="flex items-center gap-2">
                           <Badge variant="secondary">卡片 {index + 1}</Badge>
                           <div className="truncate text-sm font-medium">
-                            {group.masks.map((mask, maskIndex) => maskTitle(mask, maskIndex)).filter(Boolean).join(' / ')}
+                            {group.masks.map((mask, maskIndex) => maskTitle(mask, maskIndex)).join(' / ')}
                           </div>
                         </div>
                         <div className="mt-1 truncate text-xs text-muted-foreground">
-                          {group.masks.map((mask) => mask.reason).filter(Boolean).join('；') || '这张卡会使用当前这一组遮罩区域生成独立问答遮罩。'}
+                          {group.masks.map((mask) => mask.reason).filter(Boolean).join('；') || '这组遮挡会作为一张独立卡片导出。'}
                         </div>
-                        <div className="mt-1 text-[11px] text-muted-foreground">
-                          {group.masks.length} 个遮罩块
-                        </div>
-                      </div>
+                        <div className="mt-1 text-[11px] text-muted-foreground">{group.masks.length} 个遮罩</div>
+                      </button>
                     ))}
                   </div>
                 ) : (
                   <Empty className="border-border bg-muted/20">
                     <EmptyHeader>
                       <EmptyTitle>还没有遮罩</EmptyTitle>
-                      <EmptyDescription>先画出至少一个遮罩，才能在手动模式里生成独立卡片。</EmptyDescription>
+                      <EmptyDescription>先画出至少一个遮罩，页面才会生成对应的卡片预览。</EmptyDescription>
                     </EmptyHeader>
                   </Empty>
                 )}
               </CardContent>
             </Card>
+
+            <div className={cn('grid gap-4 xl:grid-cols-2 transition-[opacity,filter] duration-200', isEditorHovered && 'opacity-45 saturate-75')}>
+              <Card className="border-border/70 bg-background/80">
+                <CardHeader>
+                  <CardTitle>问题面预览</CardTitle>
+                  <CardDescription>会按照当前选中的卡片分组，把这组遮罩高亮出来。</CardDescription>
+                </CardHeader>
+                <CardContent className="min-h-[260px]">
+                  {previewLoading ? (
+                    <div className="flex min-h-[220px] items-center justify-center text-sm text-muted-foreground">正在生成预览...</div>
+                  ) : previewSet.frontUrl ? (
+                    <button
+                      type="button"
+                      onClick={() => openPreview('问题面预览', '点击放大查看当前问题面。', previewSet.frontUrl)}
+                      className="w-full overflow-hidden rounded-xl border border-border bg-muted/20 text-left transition hover:border-primary/40"
+                    >
+                      <img src={previewSet.frontUrl} alt="Front preview" className="max-h-[420px] cursor-zoom-in w-full object-contain" />
+                    </button>
+                  ) : (
+                    <Empty className="min-h-[220px] border-border bg-muted/30">
+                      <EmptyHeader>
+                        <EmptyTitle>还没有预览</EmptyTitle>
+                        <EmptyDescription>画出遮罩后，这里会立刻显示当前卡片的问题面。</EmptyDescription>
+                      </EmptyHeader>
+                    </Empty>
+                  )}
+                </CardContent>
+              </Card>
+
+              <Card className="border-border/70 bg-background/80">
+                <CardHeader>
+                  <CardTitle>答案面预览</CardTitle>
+                  <CardDescription>答案面会保留当前卡片本身的答案区域，并继续隐藏其他组的遮罩。</CardDescription>
+                </CardHeader>
+                <CardContent className="min-h-[260px]">
+                  {previewLoading ? (
+                    <div className="flex min-h-[220px] items-center justify-center text-sm text-muted-foreground">正在生成预览...</div>
+                  ) : previewSet.backUrl ? (
+                    <button
+                      type="button"
+                      onClick={() => openPreview('答案面预览', '点击放大查看当前答案面。', previewSet.backUrl)}
+                      className="w-full overflow-hidden rounded-xl border border-border bg-muted/20 text-left transition hover:border-primary/40"
+                    >
+                      <img src={previewSet.backUrl} alt="Back preview" className="max-h-[420px] cursor-zoom-in  w-full object-contain" />
+                    </button>
+                  ) : (
+                    <Empty className="min-h-[220px] border-border bg-muted/30">
+                      <EmptyHeader>
+                        <EmptyTitle>还没有预览</EmptyTitle>
+                        <EmptyDescription>当前还没有可展示的答案面效果。</EmptyDescription>
+                      </EmptyHeader>
+                    </Empty>
+                  )}
+                </CardContent>
+              </Card>
+            </div>
           </div>
         </ScrollArea>
       ) : null}
@@ -260,38 +381,19 @@ export function ManualWorkspace({
             <DialogDescription>{previewDescription}</DialogDescription>
           </DialogHeader>
           <div className="overflow-hidden rounded-2xl border border-border/60 bg-muted/20">
-            {previewImageUrl ? (
-              <img src={previewImageUrl} alt={previewTitle} className="max-h-[75vh] w-full object-contain" />
-            ) : null}
+            {previewImageUrl ? <img src={previewImageUrl} alt={previewTitle} className="max-h-[75vh] w-full object-contain" /> : null}
           </div>
         </DialogContent>
       </Dialog>
 
-      <Dialog open={focusMode} onOpenChange={setFocusMode}>
-        <DialogContent className="h-[95vh] !w-[85vw] !max-w-[85vw] sm:!max-w-[85vw] overflow-hidden rounded-[2rem] border-border/70 bg-background/95 px-4 py-3 shadow-2xl">
-          <DialogHeader className="border-b border-border/60 px-4 py-6">
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              <div className="space-y-1">
-                <DialogTitle>聚焦编辑</DialogTitle>
-                <DialogDescription>
-                  当前只保留图像编辑和快捷键提示。按 Q 或右上角按钮可以退出。
-                </DialogDescription>
-              </div>
-              <div className="flex flex-wrap items-center gap-2">
-                <Badge variant="secondary">{expectedCardCount} 个遮罩</Badge>
-                <Badge variant="outline">{selectedItem.image.width} × {selectedItem.image.height}</Badge>
-                <Button variant="outline" size="sm" onClick={() => setFocusMode(false)}>
-                  <ShrinkIcon data-icon="inline-start" />
-                  退出聚焦（Q）
-                </Button>
-              </div>
-            </div>
-          </DialogHeader>
-          <div className="min-h-0 flex-1 overflow-hidden p-3 md:p-4">
-            {renderEditor('focus')}
-          </div>
-        </DialogContent>
-      </Dialog>
+      <FocusEditorDialog
+        open={focusMode}
+        onOpenChange={setFocusMode}
+        item={selectedItem}
+        cardCount={expectedCardCount}
+        onMasksCommit={onMasksCommit}
+        onCropCommit={onCropCommit}
+      />
     </div>
   )
-}
+})
