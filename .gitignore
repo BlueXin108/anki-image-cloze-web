@@ -1,0 +1,10 @@
+frontend/node_modules/
+frontend/dist/
+frontend/.env
+backend/.venv/
+backend/storage/
+backend/__pycache__/
+backend/app/__pycache__/
+*.pyc
+images_test/
+images_test - 副本/

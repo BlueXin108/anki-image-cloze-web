@@ -1,0 +1,71 @@
+# Agent 总控文件
+
+这是本项目后续 agent 的根入口。保持精简，把细节下沉到 `docs/`。
+
+## 语言优先级
+
+1. 与用户沟通、项目文档、任务总结，默认优先使用中文。
+2. 如需写代码注释，优先使用简短、直接、便于后来者理解的中文。
+3. 文件名、字段名、接口名、代码标识符保持英文，避免破坏代码结构与生态兼容性。
+
+## 必读顺序
+
+1. `README.md`
+2. `docs/project-overview.md`
+3. `docs/architecture.md`
+4. `docs/workflows.md`
+5. `docs/pitfalls-and-corrections.md`
+6. `docs/agent-experience.md`
+7. `docs/git-and-worktree-guide.md`
+
+## 任务结束前的回顾循环
+
+在完成任何中等以上规模的任务前，至少做以下检查：
+
+1. 结果是否真的解决了用户要解决的问题，而不是只修了表象。
+2. 若改动涉及共享编辑器行为，同时检查流水线模式与手动模式。
+3. 若改动涉及导出或 Anki，确认预览逻辑与最终导出逻辑一致。
+4. 若本次任务踩到了新坑、找到新回退方案或发现新的纠偏点，记录到：
+   - `docs/pitfalls-and-corrections.md`
+   - 必要时补充到 `docs/agent-experience.md`
+5. 若任务改变了产品结构、职责边界或主流程，同步更新：
+   - `docs/project-overview.md`
+   - `docs/architecture.md`
+   - `docs/workflows.md`
+
+## 文档维护规则
+
+- 这个文件只做索引、原则和高风险提醒，不堆积长篇说明。
+- 详细说明写入 `docs/`，保持专题化、原子化。
+- 优先做小而清晰的文档更新，不要无意义整份重写。
+- 不要掩盖失败和误判，真实记录原因、修正方式和剩余风险。
+
+## 当前高风险区域
+
+- 聚焦模式一旦与普通编辑模式走了两套不同的图片尺寸逻辑，就容易出现空白和遮罩漂移。
+- 手动模式与流水线模式共享同一个编辑器内核，任何编辑交互改动都可能双边受影响。
+- 导出、预览、Anki 模板三者的语义容易漂移，改一处时必须回看另外两处。
+- 当前项目还不是独立 Git 仓库，`worktree` 在 `HEAD` 不存在时会失败。
+
+## 环境经验摘要
+
+这个环境下，偶发的“读文件失败 / 打补丁失败 / 工具突然被拦住”，不一定是代码问题，常常是当前 Windows 沙箱或 helper 防火墙规则误伤。
+
+后续 agent 应优先遵守以下策略：
+
+1. 大补丁拆成小补丁，逐步落盘。
+2. 先读准上下文，再小步修改，不要一口气跨很多文件。
+3. 每完成一小步就验证，避免错误叠加。
+4. 若普通读取或普通编辑被环境拦住，优先改用更小粒度操作；必要时再走提权读取。
+5. 若问题像是环境层异常，不要急着误判为业务代码 bug。
+
+详细说明见 `docs/agent-experience.md`。
+
+## 文档索引
+
+- `docs/project-overview.md`
+- `docs/architecture.md`
+- `docs/workflows.md`
+- `docs/pitfalls-and-corrections.md`
+- `docs/agent-experience.md`
+- `docs/git-and-worktree-guide.md`
