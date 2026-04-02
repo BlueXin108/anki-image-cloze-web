@@ -32,6 +32,7 @@ type DirectoryInputProps = InputHTMLAttributes<HTMLInputElement> & {
 
 const MANUAL_PROJECT_MIN_SIZE = 340
 const STARTUP_SAMPLE_PATH = '内置示例/启动测试图.png'
+const ENABLE_STARTUP_SAMPLE = false
 const MOBILE_IMAGE_ACCEPT = 'image/*'
 const ANKI_HELP_PROMPT_DISMISSED_KEY = 'anki-cloze:anki-help-prompt-dismissed'
 
@@ -886,11 +887,14 @@ export default function App() {
   }
 
   useEffect(() => {
+    if (!ENABLE_STARTUP_SAMPLE) return
     if (!storageReady) return
     if (draftItems.some((item) => item.image.source_path === STARTUP_SAMPLE_PATH)) return
 
     let cancelled = false
 
+    // 这段启动测试图逻辑先保留，但默认通过开关关闭。
+    // 若后续需要重新启用，只改 ENABLE_STARTUP_SAMPLE 即可。
     const appendStartupSample = async () => {
       try {
         const sample = await buildDraftItemFromAsset(ankiHelpImage, '启动测试图.webp', STARTUP_SAMPLE_PATH)
