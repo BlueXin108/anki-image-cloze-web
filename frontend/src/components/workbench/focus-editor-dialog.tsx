@@ -1,9 +1,13 @@
 import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { cn } from '@/lib/utils' // 确保引入了 cn 工具类
+import { ChevronLeftIcon, ChevronRightIcon } from 'lucide-react'
+import { motion, AnimatePresence } from 'framer-motion'
+import { cn } from '@/lib/utils'
 import type { DraftListItem } from '@/types'
 import { ImageEditor } from '@/components/editor/image-editor'
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Button } from '@/components/ui/button'
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogClose } from '@/components/ui/dialog'
+import { XIcon } from "lucide-react"
 import { Kbd } from '@/components/ui/kbd'
 
 interface FocusEditorDialogProps {
@@ -15,11 +19,20 @@ interface FocusEditorDialogProps {
   onCropCommit: (bbox: [number, number, number, number]) => Promise<void>
   title?: string
   description?: string
+  onPreviousItem?: () => void
+  onNextItem?: () => void
+  canGoPrevious?: boolean
+  canGoNext?: boolean
+  previousLabel?: string
+  nextLabel?: string
+  touchOptimized?: boolean
+  disableWheelResize?: boolean
 }
 
 const focusShortcuts = [
   { key: 'Q', label: '退出聚焦' },
   { key: 'Alt + 拖动', label: '新建遮罩' },
+  { key: 'Del/D', label: '删除选中遮罩' },
   { key: 'Ctrl + 点击', label: '多选' },
   { key: 'Ctrl + A', label: '全选' },
   { key: '1-9', label: '快速选中' },
@@ -28,7 +41,6 @@ const focusShortcuts = [
   { key: 'Ctrl + Z/Y', label: '撤回重做' },
   { key: 'V', label: '显隐遮罩' },
   { key: 'R', label: '显隐 OCR' },
-  { key: 'Del', label: '删除选中' },
 ] as const
 
 export function FocusEditorDialog({
@@ -40,6 +52,14 @@ export function FocusEditorDialog({
   onCropCommit,
   title = '聚焦编辑',
   description = '这里只保留图像编辑本身。',
+  onPreviousItem,
+  onNextItem,
+  canGoPrevious = false,
+  canGoNext = false,
+  previousLabel = '',
+  nextLabel = '',
+  touchOptimized = false,
+  disableWheelResize = false,
 }: FocusEditorDialogProps) {
   const [mounted, setMounted] = useState(false)
 
@@ -47,12 +67,36 @@ export function FocusEditorDialog({
     setMounted(true)
   }, [])
 
+  useEffect(() => {
+    if (!open) return
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      const target = event.target
+      if (target instanceof HTMLElement && target.closest('input, textarea, [contenteditable="true"]')) {
+        return
+      }
+
+      if (event.key === 'ArrowLeft' && canGoPrevious) {
+        event.preventDefault()
+        onPreviousItem?.()
+      }
+
+      if (event.key === 'ArrowRight' && canGoNext) {
+        event.preventDefault()
+        onNextItem?.()
+      }
+    }
+
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [canGoNext, canGoPrevious, onNextItem, onPreviousItem, open])
+
   if (!item) return null
 
   return (
    <Dialog open={open} onOpenChange={onOpenChange}>
       {/* --- 核心修改区：常驻底部的快捷键提示 --- */}
-      {mounted && open
+      {mounted && open && !touchOptimized
         ? createPortal(
             <div
               aria-hidden="true"
@@ -88,33 +132,116 @@ export function FocusEditorDialog({
           )
         : null}
       {/* --- 核心修改区结束 --- */}
-      <DialogContent className="flex h-[95vh] !w-[90vw] !max-w-[95vw] flex-col gap-0 overflow-hidden rounded-[2rem] border-border/70 bg-background/95 px-0 py-2 shadow-2xl pb-10">
-        <DialogHeader className="border-b border-border/60 px-6 py-4">
+      <DialogContent 
+        showCloseButton={false}
+        className={cn(
+          "flex flex-col p-0 border-none bg-transparent shadow-none overflow-visible !ring-0",
+          touchOptimized ? "h-fit max-h-[96dvh] w-[95vw] !max-w-[95vw]" : "h-[95vh] !w-[90vw] !max-w-[95vw]"
+        )}>
+        <motion.div
+           layout
+           transition={{ duration: 0.35, ease: [0, 0.43, 0, 0.99] }}
+           className={cn(
+             "flex h-full w-full flex-col gap-0 overflow-hidden border border-border/70 bg-background/95 shadow-2xl",
+             touchOptimized ? "rounded-[2rem] pt-2" : "rounded-[2rem] py-2 pb-10"
+           )}
+        >
+        <DialogHeader className={cn("relative border-b border-border/60", touchOptimized ? "px-4 py-2 pr-12" : "px-6 py-4 pr-12")}>
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div className="space-y-1">
-              <DialogTitle>{title}</DialogTitle>
-              <DialogDescription>{description}</DialogDescription>
+              <DialogTitle className={cn(touchOptimized && "text-[15px]")}>{title}</DialogTitle>
+              {!touchOptimized && <DialogDescription className={cn(touchOptimized && "text-[11px]")}>{description}</DialogDescription>}
             </div>
-            <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+            <div className={cn("flex flex-wrap items-center gap-2 text-muted-foreground", touchOptimized ? "text-[10px]" : "text-xs")}>
               <span>{cardCount} 张卡片</span>
+              {touchOptimized ? (
+                <>
+                  <span className="opacity-50">|</span>
+                  <span className="text-primary/70 font-medium">支持双指缩放编辑与两侧切图</span>
+                </>
+              ) : (canGoPrevious || canGoNext) ? (
+                <span>左右方向键也可切图</span>
+              ) : null}
             </div>
           </div>
+          <DialogClose asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              className={cn("absolute right-2 top-2 rounded-full", touchOptimized ? "size-6" : "size-8")}
+            >
+              <XIcon className="size-4" />
+            </Button>
+          </DialogClose>
         </DialogHeader>
-        <div className="min-h-0 flex-1 overflow-hidden px-4 py-3 md:px-5 md:py-4">
-          <ImageEditor
-            key={`focus-${item.draft.id}`}
-            draft={item.draft}
-            sourceImageUrl={item.image.source_url || ''}
-            imageWidth={item.image.width}
-            imageHeight={item.image.height}
-            onMasksCommit={onMasksCommit}
-            onCropCommit={onCropCommit}
-            showOcrTools={false}
-            showCropSubmit={false}
-            focusLayout
-            hideMetaBar
-          />
+        <div className={cn("relative min-h-0 overflow-hidden", touchOptimized ? "px-2 py-2" : "flex-1 px-4 py-3 md:px-5 md:py-4")}>
+          {canGoPrevious ? (
+            <Button
+              type="button"
+              variant="secondary"
+              size="icon"
+              className={cn(
+                'absolute left-0 top-1/2 z-[60] -translate-y-1/2 rounded-r-lg rounded-l-none border-l-0 shadow-md bg-background/80 backdrop-blur-sm',
+                touchOptimized ? 'h-16 w-8' : 'size-10 rounded-full',
+              )}
+              onClick={onPreviousItem}
+            >
+              <ChevronLeftIcon className={cn(touchOptimized && "size-5")} />
+              <span className="sr-only">{previousLabel}</span>
+            </Button>
+          ) : null}
+
+          {canGoNext ? (
+            <Button
+              type="button"
+              variant="secondary"
+              size="icon"
+              className={cn(
+                'absolute right-0 top-1/2 z-[60] -translate-y-1/2 rounded-l-lg rounded-r-none border-r-0 shadow-md bg-background/80 backdrop-blur-sm',
+                touchOptimized ? 'h-16 w-8' : 'size-10 rounded-full',
+              )}
+              onClick={onNextItem}
+            >
+              <span className="sr-only">{nextLabel}</span>
+              <ChevronRightIcon className={cn(touchOptimized && "size-5")} />
+            </Button>
+          ) : null}
+
+          <AnimatePresence mode="wait" initial={false}>
+            <motion.div
+              key={`focus-${item.draft.id}`}
+              initial={{ opacity: 0, scale: 0.98 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.98 }}
+              transition={{ duration: 0.25, ease: [0, 0.43, 0, 0.99] }}
+              className={cn("w-full", !touchOptimized && "h-full")}
+            >
+              <ImageEditor
+                draft={item.draft}
+                sourceImageUrl={item.image.source_url || ''}
+                imageWidth={item.image.width}
+                imageHeight={item.image.height}
+                onMasksCommit={onMasksCommit}
+                onCropCommit={onCropCommit}
+                showOcrTools={false}
+                showCropSubmit={false}
+                focusLayout
+                hideMetaBar={!touchOptimized}
+                disableWheelResize={disableWheelResize}
+                touchOptimized={touchOptimized}
+              />
+            </motion.div>
+          </AnimatePresence>
         </div>
+        {touchOptimized && (
+          <div className="border-t border-border/60 bg-muted/20 p-3 flex justify-center mt-auto">
+            <Button className="w-full max-w-sm shadow-sm font-semibold rounded-xl" onClick={() => onOpenChange(false)}>
+              处理完成
+            </Button>
+          </div>
+        )}
+        </motion.div>
       </DialogContent>
     </Dialog>
   )

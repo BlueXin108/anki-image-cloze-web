@@ -1,4 +1,4 @@
-import { memo, useEffect, useMemo, useState, type ComponentProps } from 'react'
+import { memo, useEffect, useMemo, useRef, useState, type ComponentProps } from 'react'
 import {
   AlertTriangleIcon,
   ChevronsUpDownIcon,
@@ -10,7 +10,6 @@ import {
 
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Progress } from '@/components/ui/progress'
 import { Spinner } from '@/components/ui/spinner'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
@@ -54,13 +53,13 @@ function badgeVariant(state: StatusTaskStateKind): ComponentProps<typeof Badge>[
 function rowClass(state: StatusTaskStateKind): string {
   switch (state) {
     case 'running':
-      return 'border-amber-300/70 bg-amber-50/80 dark:bg-amber-500/10'
+      return 'border-amber-300/75 bg-amber-50/92 dark:bg-amber-500/10'
     case 'success':
-      return 'border-border/70 bg-muted/30'
+      return 'border-border/70 bg-background/92'
     case 'error':
-      return 'border-destructive/30 bg-destructive/5'
+      return 'border-destructive/35 bg-destructive/6'
     default:
-      return 'border-border/60 border-dashed bg-background/50'
+      return 'border-border/60 border-dashed bg-background/88'
   }
 }
 
@@ -142,32 +141,45 @@ export const StatusCapsule = memo(function StatusCapsule({
   const [open, setOpen] = useState(false)
   const [isHovered, setIsHovered] = useState(false)
   const [lastStatusRefreshAt, setLastStatusRefreshAt] = useState(() => Date.now())
+  const [spotlightTaskId, setSpotlightTaskId] = useState<StatusTaskId | null>(null)
+  const previousStatesRef = useRef(new Map<StatusTaskId, StatusTaskStateKind>())
 
-  const shouldAutoExpand = useMemo(
-    () => tasks.some((task) => task.state === 'error' || (task.state === 'running' && task.id !== 'save')),
-    [tasks],
-  )
+  const visibleTasks = useMemo(() => {
+    if (!open || !spotlightTaskId) return tasks
+    const spotlightTask = tasks.find((task) => task.id === spotlightTaskId && task.state === 'error')
+    return spotlightTask ? [spotlightTask] : tasks
+  }, [open, spotlightTaskId, tasks])
 
   useEffect(() => {
     setLastStatusRefreshAt(Date.now())
   }, [tasks])
 
   useEffect(() => {
-    if (shouldAutoExpand) {
+    const latestErrorTask = tasks.find((task) => {
+      const previousState = previousStatesRef.current.get(task.id)
+      return task.state === 'error' && previousState !== 'error'
+    })
+
+    if (latestErrorTask) {
+      setSpotlightTaskId(latestErrorTask.id)
       setOpen(true)
     }
-  }, [shouldAutoExpand])
+
+    previousStatesRef.current = new Map(tasks.map((task) => [task.id, task.state]))
+  }, [tasks])
 
   useEffect(() => {
     if (!open || isHovered) return
 
     const elapsed = Date.now() - lastStatusRefreshAt
     if (elapsed >= 5000) {
+      setSpotlightTaskId(null)
       setOpen(false)
       return
     }
 
     const timeoutId = window.setTimeout(() => {
+      setSpotlightTaskId(null)
       setOpen(false)
     }, 5000 - elapsed)
 
@@ -186,67 +198,80 @@ export const StatusCapsule = memo(function StatusCapsule({
         
         {/* 详情面板 - 添加了过渡动画 animate-in */}
         {open && (
-          <Card className="pointer-events-auto w-[min(320px,calc(100vw-2rem))] rounded-[18px] border-border/70 bg-background/60 shadow-xl shadow-black/5 backdrop-blur-xl animate-in fade-in zoom-in-95 slide-in-from-bottom-2 duration-200">
-            <CardHeader className="pb-0 pt-0 px-4">
-              <div className="flex items-center justify-between gap-2.5">
-                <CardTitle className="text-sm font-semibold text-foreground/80">任务状态</CardTitle>
-                <Button 
-                  size="sm" 
-                  variant="ghost" 
-                  className="h-7 rounded-full px-2.5 text-xs text-muted-foreground hover:bg-muted/50" 
-                  onClick={() => setOpen(false)} 
-                  aria-label="收起状态面板"
-                >
-                  收起
-                  <ChevronsUpDownIcon className="ml-1 size-3" />
-                </Button>
-              </div>
-            </CardHeader>
-            <CardContent className="flex flex-col gap-2.5 px-4 pb-4">
-              {tasks.map((task) => (
-                <div key={task.id} className={cn('rounded-xl border p-3 transition-colors', rowClass(task.state))}>
-                  <div className="flex items-start gap-3">
+          <div className="pointer-events-auto flex w-[min(23rem,calc(100vw-2rem))] flex-col gap-1.5 animate-in fade-in zoom-in-95 slide-in-from-bottom-2 duration-200">
+            <div className="flex items-center justify-between px-1">
+              <div className="text-[11px] font-medium tracking-wide text-muted-foreground">任务状态</div>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-6 rounded-full px-2 text-[11px] text-muted-foreground hover:bg-muted/50"
+                onClick={() => {
+                  setSpotlightTaskId(null)
+                  setOpen(false)
+                }}
+                aria-label="收起状态面板"
+              >
+                收起
+                <ChevronsUpDownIcon className="ml-1 size-3" />
+              </Button>
+            </div>
+            {visibleTasks.map((task) => (
+              <div
+                key={task.id}
+                className={cn(
+                  'rounded-full border px-2.5 py-1.5 shadow-sm shadow-black/5 backdrop-blur-md transition-colors',
+                  rowClass(task.state),
+                )}
+              >
+                <div className="flex items-center gap-2.5">
+                  <div
+                    className={cn(
+                      'flex size-6 shrink-0 items-center justify-center rounded-full border bg-background',
+                      capsuleToneClass(task),
+                    )}
+                  >
+                    {taskIcon(task)}
+                  </div>
+
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <div className="truncate text-xs font-medium text-foreground">{task.label}</div>
+                      <Badge variant={badgeVariant(task.state)} className="h-4 shrink-0 px-1.5 py-0 text-[10px]">
+                        {statusLabel(task.state)}
+                      </Badge>
+                    </div>
+                    <div className="truncate text-[11px] text-muted-foreground/80">{task.detail}</div>
+                  </div>
+
+                  <div className="flex min-w-[5.5rem] items-center gap-2">
+                    <Progress value={task.progress} className={cn('h-1 min-w-0 flex-1', progressClass(task.state))} />
                     <div
                       className={cn(
-                        'flex size-8 shrink-0 items-center justify-center rounded-full border bg-background',
-                        capsuleToneClass(task),
+                        'w-8 text-right text-[10px] tabular-nums',
+                        task.progress === 100 ? 'font-semibold text-foreground' : 'text-muted-foreground',
                       )}
                     >
-                      {taskIcon(task)}
-                    </div>
-
-                    <div className="min-w-0 flex-1">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <div className="text-sm font-medium text-foreground">{task.label}</div>
-                        <Badge variant={badgeVariant(task.state)} className="text-[10px] h-4 px-1.5 py-0">
-                          {statusLabel(task.state)}
-                        </Badge>
-                      </div>
-                      <div className="mt-0.5 text-xs leading-tight text-muted-foreground/80">{task.detail}</div>
-                      
-                      <div className="mt-2.5 flex items-center gap-2.5">
-                        <Progress value={task.progress} className={cn('h-1.5', progressClass(task.state))} />
-                        <div className={cn('w-9 text-right text-[11px] tabular-nums tracking-tight', task.progress === 100 ? 'font-semibold text-foreground' : 'text-muted-foreground')}>
-                          {Math.round(task.progress)}%
-                        </div>
-                      </div>
+                      {Math.round(task.progress)}%
                     </div>
                   </div>
                 </div>
-              ))}
-            </CardContent>
-          </Card>
+              </div>
+            ))}
+          </div>
         )}
 
         {/* 底部真正的“胶囊栏” - 移除Card，使用原生div，圆角调整为 rounded-full */}
-        <div className="pointer-events-auto flex items-center gap-2 rounded-full border border-border/50 bg-background/70 p-1.5 pr-2 shadow-lg shadow-black/5 backdrop-blur-md transition-all hover:shadow-xl hover:bg-background/90 group">
+        <div className="pointer-events-auto flex items-center gap-1.5 rounded-full border border-border/50 bg-background/70 px-1.5 py-1 shadow-lg shadow-black/5 backdrop-blur-md transition-all hover:bg-background/90 hover:shadow-xl group">
           
           {/* 图标叠加区：使用 -space-x-1.5 制造头像组重叠的紧凑视觉，并修复嵌套 button 语意问题 */}
           <div 
             role="button"
             tabIndex={0}
-            onClick={() => setOpen((current) => !current)}
-            className="flex items-center space-x-1.5 pl-1 cursor-pointer"
+            onClick={() => {
+              setSpotlightTaskId(null)
+              setOpen((current) => !current)
+            }}
+            className="flex items-center space-x-1 pl-0.5 cursor-pointer"
             aria-label={open ? '收起状态面板' : '展开状态面板'}
           >
             {tasks.map((task, index) => (
@@ -254,7 +279,7 @@ export const StatusCapsule = memo(function StatusCapsule({
                 <TooltipTrigger asChild>
                   <span
                     className={cn(
-                      'relative flex size-6 items-center justify-center rounded-full border-2 border-background transition-transform hover:z-10 hover:scale-[1.01] cursor-default',
+                      'relative flex size-5.5 items-center justify-center rounded-full border border-background transition-transform hover:z-10 hover:scale-[1.01] cursor-default',
                       capsuleToneClass(task),
                       task.state === 'idle' && 'border-dashed',
                       /* 确保第一个元素不被后面的盖住，保持视觉层级 */
@@ -276,18 +301,21 @@ export const StatusCapsule = memo(function StatusCapsule({
             ))}
           </div>
 
-          <div className="h-4 w-px bg-border/50 mx-1" aria-hidden="true" />
+          <div className="mx-0.5 h-3.5 w-px bg-border/50" aria-hidden="true" />
 
           {/* 右侧控制按钮 */}
           <Button
             type="button"
             variant="ghost"
             size="sm"
-            className="h-7 rounded-full px-2.5 text-xs font-medium text-muted-foreground hover:bg-muted/80 hover:text-foreground"
-            onClick={() => setOpen((current) => !current)}
+            className="h-6 rounded-full px-2 text-[11px] font-medium text-muted-foreground hover:bg-muted/80 hover:text-foreground"
+            onClick={() => {
+              setSpotlightTaskId(null)
+              setOpen((current) => !current)
+            }}
           >
             状态
-            <ChevronsUpDownIcon className="ml-1.5 size-3.5 opacity-70" />
+            <ChevronsUpDownIcon className="ml-1 size-3 opacity-70" />
           </Button>
         </div>
         

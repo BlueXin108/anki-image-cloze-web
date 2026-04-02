@@ -9,7 +9,7 @@ createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <TooltipProvider>
       <App />
-      <Toaster closeButton position="top-right" />
+      <Toaster closeButton expand position="top-right" />
     </TooltipProvider>
   </StrictMode>,
 )

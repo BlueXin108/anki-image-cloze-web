@@ -1,6 +1,6 @@
 export type BBox = [number, number, number, number]
 export type WorkspaceMode = 'pipeline' | 'manual'
-export type DraftReviewStatus = 'draft' | 'imported'
+export type DraftReviewStatus = 'draft' | 'imported' | 'packaged'
 
 export interface CropSuggestion {
   bbox: BBox

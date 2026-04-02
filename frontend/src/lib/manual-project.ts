@@ -14,6 +14,13 @@ export interface BuildDraftProgress {
   fileName: string
 }
 
+interface DraftBlobSource {
+  blob: Blob
+  name: string
+  relativePath?: string
+  mediaType?: string
+}
+
 function normalizeFolderPath(relativePath: string): { sourcePath: string; folderPath: string } {
   const normalized = relativePath.replace(/\\/g, '/').replace(/^\/+/, '')
   const segments = normalized.split('/').filter(Boolean)
@@ -38,9 +45,18 @@ function readImageSize(url: string): Promise<{ width: number; height: number }> 
   })
 }
 
-async function sha256(file: Blob): Promise<string> {
-  const buffer = await file.arrayBuffer()
-  const hash = await crypto.subtle.digest('SHA-256', buffer)
+async function createFileFingerprint(file: Blob): Promise<string> {
+  const chunkSize = 64 * 1024
+  const head = new Uint8Array(await file.slice(0, chunkSize).arrayBuffer())
+  const tailStart = Math.max(0, file.size - chunkSize)
+  const tail = tailStart === 0 ? new Uint8Array() : new Uint8Array(await file.slice(tailStart).arrayBuffer())
+  const encoder = new TextEncoder()
+  const meta = encoder.encode(`${file.size}:${file.type || 'application/octet-stream'}`)
+  const sample = new Uint8Array(meta.length + head.length + tail.length)
+  sample.set(meta, 0)
+  sample.set(head, meta.length)
+  sample.set(tail, meta.length + head.length)
+  const hash = await crypto.subtle.digest('SHA-256', sample)
   return [...new Uint8Array(hash)].map((item) => item.toString(16).padStart(2, '0')).join('')
 }
 
@@ -53,13 +69,12 @@ export function defaultManualCrop(width: number, height: number): CropSuggestion
   }
 }
 
-export async function buildDraftItemFromFile(file: File): Promise<DraftListItem> {
-  const extended = file as File & { webkitRelativePath?: string }
-  const relativePath = extended.webkitRelativePath?.trim() || file.name
+async function buildDraftItemFromBlob(source: DraftBlobSource): Promise<DraftListItem> {
+  const relativePath = source.relativePath?.trim() || source.name
   const { sourcePath, folderPath } = normalizeFolderPath(relativePath)
-  const sourceUrl = URL.createObjectURL(file)
+  const sourceUrl = URL.createObjectURL(source.blob)
   const { width, height } = await readImageSize(sourceUrl)
-  const fileHash = await sha256(file)
+  const fileHash = await createFileFingerprint(source.blob)
   const imageId = crypto.randomUUID()
   const draftId = crypto.randomUUID()
   const now = new Date().toISOString()
@@ -76,7 +91,7 @@ export async function buildDraftItemFromFile(file: File): Promise<DraftListItem>
       deck: null,
       tags: [],
       source_url: sourceUrl,
-      media_type: file.type || 'image/png',
+      media_type: source.mediaType || source.blob.type || 'image/png',
     },
     draft: {
       id: draftId,
@@ -99,8 +114,32 @@ export async function buildDraftItemFromFile(file: File): Promise<DraftListItem>
       updated_at: now,
       last_imported_at: null,
     },
-    image_blob: file,
+    image_blob: source.blob,
   }
+}
+
+export async function buildDraftItemFromFile(file: File): Promise<DraftListItem> {
+  const extended = file as File & { webkitRelativePath?: string }
+  return buildDraftItemFromBlob({
+    blob: file,
+    name: file.name,
+    relativePath: extended.webkitRelativePath?.trim() || file.name,
+    mediaType: file.type || 'image/png',
+  })
+}
+
+export async function buildDraftItemFromAsset(assetUrl: string, name: string, relativePath?: string): Promise<DraftListItem> {
+  const response = await fetch(assetUrl)
+  if (!response.ok) {
+    throw new Error('内置测试图片读取失败。')
+  }
+  const blob = await response.blob()
+  return buildDraftItemFromBlob({
+    blob,
+    name,
+    relativePath: relativePath || name,
+    mediaType: blob.type || 'image/png',
+  })
 }
 
 export async function buildDraftItemsFromFiles(

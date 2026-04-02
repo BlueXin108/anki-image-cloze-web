@@ -5,6 +5,7 @@ import { parseTagInput } from '@/lib/workbench-state'
 import type { CardDraft, DraftListItem } from '@/types'
 
 export type ExportFlowStage = 'review' | 'confirm'
+export type ExportDestination = 'anki' | 'apkg'
 type ExportDraftEdit = { deck: string; tags: string[] }
 
 interface UseExportFlowParams {
@@ -20,7 +21,7 @@ interface UseExportFlowParams {
     importedNoteId?: number | null
     lastImportedAt?: string | null
   }) => Promise<CardDraft | null>
-  importDraftsToAnki: (targets: DraftListItem[]) => Promise<{ successCount: number; failedCount: number }>
+  exportDrafts: (targets: DraftListItem[], destination: ExportDestination) => Promise<{ successCount: number; failedCount: number }>
   run: (key: string, action: () => Promise<void>) => Promise<void>
 }
 
@@ -30,7 +31,7 @@ export function useExportFlow({
   selectedItem,
   loadingKey,
   patchDraft,
-  importDraftsToAnki,
+  exportDrafts,
   run,
 }: UseExportFlowParams) {
   const [exportDialogOpen, setExportDialogOpen] = useState(false)
@@ -90,7 +91,7 @@ export function useExportFlow({
   }
 
   const handleExportDialogChange = (open: boolean) => {
-    if (!open && loadingKey === 'manual-export-all') return
+    if (!open && (loadingKey === 'manual-export-anki' || loadingKey === 'manual-export-apkg')) return
     if (!open && deferredPersistTimeoutRef.current !== null) {
       window.clearTimeout(deferredPersistTimeoutRef.current)
       deferredPersistTimeoutRef.current = null
@@ -113,13 +114,27 @@ export function useExportFlow({
       return
     }
 
-    setExportDraftEdits((current) => ({
-      ...current,
+    const nextEdits = {
+      ...exportDraftEdits,
       [currentItem.draft.id]: { deck: nextDeck, tags: nextTags },
-    }))
+    }
+
+    setExportDraftEdits(nextEdits)
     setReviewedDraftIds((current) => [...new Set([...current, currentItem.draft.id])])
 
-    if (exportIndex >= exportQueue.length - 1) {
+    const firstMissingIndex = exportQueue.findIndex((item) => {
+      const edit = nextEdits[item.draft.id]
+      return !(edit ? edit.deck : item.draft.deck)?.trim()
+    })
+
+    if (exportIndex >= exportQueue.length - 1 || (firstMissingIndex !== -1 && exportIndex === exportQueue.length - 1)) {
+      if (firstMissingIndex !== -1) {
+        toast.info('还有图片尚未设置牌组', { description: `已为您定位到第 ${firstMissingIndex + 1} 张图片。` })
+        setExportIndex(firstMissingIndex)
+        await persistDraftEdit(currentItem.draft.id, nextDeck, nextTags)
+        return
+      }
+
       setExportStage('confirm')
       if (deferredPersistTimeoutRef.current !== null) {
         window.clearTimeout(deferredPersistTimeoutRef.current)
@@ -139,8 +154,18 @@ export function useExportFlow({
     setExportIndex((current) => Math.max(0, current - 1))
   }
 
-  const exportAllFromFlow = async () => {
-    await run('manual-export-all', async () => {
+  const goToNextExportCard = () => {
+    setExportStage('review')
+    setExportIndex((current) => Math.min(Math.max(0, exportQueue.length - 1), current + 1))
+  }
+
+  const goToExportCard = (index: number) => {
+    setExportStage('review')
+    setExportIndex(Math.max(0, Math.min(Math.max(0, exportQueue.length - 1), index)))
+  }
+
+  const exportAllFromFlow = async (destination: ExportDestination) => {
+    await run(destination === 'anki' ? 'manual-export-anki' : 'manual-export-apkg', async () => {
       if (deferredPersistTimeoutRef.current !== null) {
         window.clearTimeout(deferredPersistTimeoutRef.current)
         deferredPersistTimeoutRef.current = null
@@ -163,7 +188,7 @@ export function useExportFlow({
           }
         })
         .filter((item) => !item.image.ignored && item.draft.masks.length > 0 && Boolean(item.draft.deck?.trim()))
-      const result = await importDraftsToAnki(targets)
+      const result = await exportDrafts(targets, destination)
       if (result.failedCount === 0) {
         setExportDialogOpen(false)
       }
@@ -186,6 +211,8 @@ export function useExportFlow({
     handleExportDialogChange,
     confirmCurrentExportCard,
     goToPreviousExportCard,
+    goToNextExportCard,
+    goToExportCard,
     exportAllFromFlow,
   }
 }

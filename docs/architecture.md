@@ -19,7 +19,11 @@
 - 卡片分组预览
 - 全屏导出确认流
 - 左下状态胶囊与右下导出入口
+- 顶部端模式提示与右上帮助入口
 - AnkiConnect 直连
+- APKG 卡包导出
+- 本地牌组池
+- 移动端布局分流与设备判断
 - 流水线占位 UI
 
 重要区域：
@@ -29,12 +33,23 @@
   - 负责把头部、工作区、状态胶囊、导出视窗拼起来
 - `frontend/src/components/workbench/`
   - 手动工作区、牌组浏览器、状态胶囊、导出流程视窗、顶部工作台外壳
+  - `anki-connect-help-popover.tsx` 负责右上帮助说明
+  - `inline-emphasis.tsx` 负责文本流里的轻量强调和说明提示
 - `frontend/src/hooks/`
   - 承接导出流程这类状态机和动作推进
+- `frontend/src/hooks/use-device-profile.ts`
+  - 判断当前是否走移动端布局、是否允许直连本机 Anki
 - `frontend/src/lib/workbench-state.ts`
   - 前端工作台共享的状态辅助函数与常量
+  - 当前状态胶囊只保留 Anki、恢复、本地保存三类核心状态
+- `frontend/src/lib/deck-pool.ts`
+  - 维护当前设备自己的本地牌组池
+- `frontend/src/lib/apkg-export.ts`
+  - 复用现有预览结果生成 APKG 卡包
 - `frontend/src/components/editor/image-editor.tsx`
   - 共享的裁切 / 遮罩编辑核心
+- `frontend/src/components/ui/sonner.tsx`
+  - 统一管理右上角消息提示的层级与关闭样式
 
 ## 后端职责
 
@@ -71,3 +86,6 @@
 - 导入 Anki 时依赖的是用户本机 `127.0.0.1:8765`
 - 远端网页能否成功连到本机 Anki，取决于用户环境和 AnkiConnect 放行设置
 - 导出视窗里的只读预览复用了共享编辑器，因此只读与可编辑模式必须继续共用同一套图片尺寸逻辑
+- 移动端常规工作区默认只读，真正可编辑态被限制在聚焦编辑里
+- 移动端不会运行本机 Anki 检测，也不会展示相关入口
+- 顶部帮助与正文里的 `AnkiConnect` / `APKG` 强调提示，要继续与真实能力保持一致，避免文案暗示和实际行为脱节

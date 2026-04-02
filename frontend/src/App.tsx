@@ -5,16 +5,22 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, ty
 import { toast } from 'sonner'
 
 import { ExportFlowDialog } from '@/components/workbench/export-flow-dialog'
+import { InlineEmphasis } from '@/components/workbench/inline-emphasis'
 import { ManualDraftList } from '@/components/workbench/manual-draft-list'
 import { PipelinePlaceholder } from '@/components/workbench/pipeline-placeholder'
 import { StatusCapsule, type StatusTaskId, type StatusTaskState } from '@/components/workbench/status-capsule'
 import { ManualWorkspace } from '@/components/workbench/manual-workspace'
 import { WorkbenchHeader, type WorkspaceGuideAction } from '@/components/workbench/workbench-header'
 import { Button } from '@/components/ui/button'
+import { Skeleton } from '@/components/ui/skeleton'
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable'
 import { useExportFlow } from '@/hooks/use-export-flow'
+import { useDeviceProfile } from '@/hooks/use-device-profile'
 import { api } from '@/lib/api'
-import { buildDraftItemsFromFiles, mergeImportedItems, preferredWorkspaceMode } from '@/lib/manual-project'
+import { exportDraftsAsApkg, shareOrDownloadApkg } from '@/lib/apkg-export'
+import { downloadDeckPoolBackup, loadDeckPool, loadDeckQuickPicks, readDeckPoolBackup, rememberDeckName, rememberDeckNames, saveDeckPool } from '@/lib/deck-pool'
+import ankiHelpImage from '@/assets/ankiHelp-1.webp'
+import { buildDraftItemFromAsset, buildDraftItemsFromFiles, mergeImportedItems, preferredWorkspaceMode } from '@/lib/manual-project'
 import { releaseDraftItems } from '@/lib/project-store'
 import { ankiLoadingState, classifyAnkiFailure, createInitialStatusTasks, EMPTY_ANKI_STATE, nowIso, replaceDraft, STATUS_TASK_ORDER, WORKSPACE_MODE_STORAGE_KEY } from '@/lib/workbench-state'
 import type { AnkiConnectionState, CardDraft, DraftListItem, WorkspaceMode } from '@/types'
@@ -25,8 +31,48 @@ type DirectoryInputProps = InputHTMLAttributes<HTMLInputElement> & {
 }
 
 const MANUAL_PROJECT_MIN_SIZE = 340
+const STARTUP_SAMPLE_PATH = '内置示例/启动测试图.png'
+const MOBILE_IMAGE_ACCEPT = 'image/*'
+const ANKI_HELP_PROMPT_DISMISSED_KEY = 'anki-cloze:anki-help-prompt-dismissed'
+
+function WorkspaceLoadingShell({ mobile }: { mobile: boolean }) {
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="rounded-2xl border border-border/70 bg-background/92 p-4 shadow-sm">
+        <div className="flex items-start gap-3">
+          <Skeleton className="size-11 rounded-2xl" />
+          <div className="flex min-w-0 flex-1 flex-col gap-2">
+            <Skeleton className="h-6 w-52 rounded-full" />
+            <Skeleton className="h-4 w-full max-w-xl rounded-full" />
+          </div>
+        </div>
+      </div>
+      <div className={mobile ? 'flex flex-col gap-4' : 'grid min-h-[calc(100vh-220px)] grid-cols-[340px_minmax(0,1fr)] gap-4'}>
+        <div className="rounded-2xl border border-border/70 bg-background/90 p-4 shadow-sm">
+          <div className="flex flex-col gap-3">
+            <Skeleton className="h-5 w-28 rounded-full" />
+            <Skeleton className="h-20 w-full rounded-2xl" />
+            <Skeleton className="h-20 w-full rounded-2xl" />
+            <Skeleton className="h-20 w-full rounded-2xl" />
+          </div>
+        </div>
+        <div className="rounded-2xl border border-border/70 bg-background/90 p-4 shadow-sm">
+          <div className="flex flex-col gap-4">
+            <Skeleton className="h-6 w-40 rounded-full" />
+            <Skeleton className="aspect-[4/3] w-full rounded-3xl" />
+            <div className="grid gap-4 xl:grid-cols-2">
+              <Skeleton className="h-44 w-full rounded-2xl" />
+              <Skeleton className="h-44 w-full rounded-2xl" />
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
 
 export default function App() {
+  const deviceProfile = useDeviceProfile()
   const [draftItems, setDraftItems] = useState<DraftListItem[]>([])
   const [selectedDraftId, setSelectedDraftId] = useState<string | null>(null)
   const [editorHoverActive, setEditorHoverActive] = useState(false)
@@ -36,35 +82,59 @@ export default function App() {
   })
   const [loadingKey, setLoadingKey] = useState<string | null>(null)
   const [ankiState, setAnkiState] = useState<AnkiConnectionState>(EMPTY_ANKI_STATE)
+  const [deckPool, setDeckPool] = useState<string[]>(() => loadDeckPool())
+  const [deckQuickPicks, setDeckQuickPicks] = useState<string[]>(() => loadDeckQuickPicks())
   const [storageReady, setStorageReady] = useState(false)
+  const [isImportingFiles, setIsImportingFiles] = useState(false)
+  const [importingLabel, setImportingLabel] = useState('正在准备项目')
   const [statusTasks, setStatusTasks] = useState<Record<StatusTaskId, StatusTaskState>>(() => createInitialStatusTasks())
+  const [ankiHelpOpen, setAnkiHelpOpen] = useState(false)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
+  const fileManagerInputRef = useRef<HTMLInputElement | null>(null)
   const folderInputRef = useRef<HTMLInputElement | null>(null)
+  const deckPoolInputRef = useRef<HTMLInputElement | null>(null)
   const draftItemsRef = useRef<DraftListItem[]>([])
   const saveSequenceRef = useRef(0)
+  const ankiHelpPromptedRef = useRef(false)
   const manualLayoutRef = useRef<HTMLDivElement | null>(null)
   const [manualLayoutWidth, setManualLayoutWidth] = useState(() =>
     typeof window === 'undefined' ? 1440 : Math.max(window.innerWidth - 80, MANUAL_PROJECT_MIN_SIZE),
   )
+  const [ankiHelpPromptDismissed, setAnkiHelpPromptDismissed] = useState(() => {
+    if (typeof window === 'undefined') return false
+    return window.localStorage.getItem(ANKI_HELP_PROMPT_DISMISSED_KEY) === '1'
+  })
 
   const selectedItem = useMemo(
     () => draftItems.find((item) => item.draft.id === selectedDraftId) ?? draftItems[0] ?? null,
     [draftItems, selectedDraftId],
+  )
+  const activeDraftItems = useMemo(() => draftItems.filter((item) => !item.image.ignored), [draftItems])
+  const selectedDraftIndex = useMemo(
+    () => activeDraftItems.findIndex((item) => item.draft.id === selectedItem?.draft.id),
+    [activeDraftItems, selectedItem?.draft.id],
   )
 
   const deckOptions = useMemo(() => {
     const localDecks = draftItems
       .map((item) => item.draft.deck?.trim())
       .filter((value): value is string => Boolean(value))
-    return [...new Set([...ankiState.decks, ...localDecks])].sort((left, right) => left.localeCompare(right, 'zh-CN'))
-  }, [ankiState.decks, draftItems])
+    const ankiDecks = deviceProfile.canDirectAnki ? ankiState.decks : []
+    return [...new Set([...ankiDecks, ...deckPool, ...localDecks])].sort((left, right) => left.localeCompare(right, 'zh-CN'))
+  }, [ankiState.decks, deckPool, deviceProfile.canDirectAnki, draftItems])
 
   const exportQueue = useMemo(
     () => draftItems.filter((item) => !item.image.ignored && item.draft.masks.length > 0),
     [draftItems],
   )
 
-  const orderedStatusTasks = useMemo(() => STATUS_TASK_ORDER.map((taskId) => statusTasks[taskId]), [statusTasks])
+  const orderedStatusTasks = useMemo(
+    () => STATUS_TASK_ORDER.filter((taskId) => deviceProfile.canDirectAnki || taskId !== 'anki').map((taskId) => statusTasks[taskId]),
+    [deviceProfile.canDirectAnki, statusTasks],
+  )
+  const showWorkspaceLoadingShell = !storageReady
+  const showWorkspaceProcessingOverlay = isImportingFiles || loadingKey === 'restore-project'
+  const workspaceProcessingText = isImportingFiles ? `${importingLabel}，正在处理图片和预览。` : '正在恢复你上次保存在浏览器里的项目。'
   const manualProjectPanelPercent = useMemo(() => {
     const nextPercent = (MANUAL_PROJECT_MIN_SIZE / Math.max(manualLayoutWidth, MANUAL_PROJECT_MIN_SIZE)) * 100
     return Number(Math.max(18, Math.min(38, nextPercent)).toFixed(2))
@@ -79,6 +149,34 @@ export default function App() {
       },
     }))
   }
+
+  const dismissAnkiHelpPrompt = useCallback(() => {
+    setAnkiHelpPromptDismissed(true)
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem(ANKI_HELP_PROMPT_DISMISSED_KEY, '1')
+    }
+  }, [])
+
+  const promptAnkiHelpOnFirstFailure = useCallback(() => {
+    if (deviceProfile.isMobileDevice || ankiHelpPromptDismissed || ankiHelpPromptedRef.current) return
+
+    ankiHelpPromptedRef.current = true
+    toast('是否已安装 AnkiConnect？', {
+      description: '它可以提供牌组直连服务；如果你只想导出 APKG，可以忽略这一步。',
+      duration: Infinity,
+      action: {
+        label: 'AnkiConnect',
+        onClick: () => {
+          dismissAnkiHelpPrompt()
+          setAnkiHelpOpen(true)
+        },
+      },
+      cancel: {
+        label: '不再提示',
+        onClick: dismissAnkiHelpPrompt,
+      },
+    })
+  }, [ankiHelpPromptDismissed, deviceProfile.isMobileDevice, dismissAnkiHelpPrompt])
 
   useEffect(() => {
     draftItemsRef.current = draftItems
@@ -111,8 +209,23 @@ export default function App() {
   }, [])
 
   useEffect(() => {
+    if (!deviceProfile.canDirectAnki) {
+      setAnkiState(EMPTY_ANKI_STATE)
+      updateStatusTask('anki', { state: 'idle', progress: 0, detail: '移动端已跳过本机 Anki 检测。' })
+      return
+    }
     void refreshAnkiConnection({ source: 'startup' })
-  }, [])
+  }, [deviceProfile.canDirectAnki])
+
+  useEffect(() => {
+    const decksToRemember = draftItems
+      .map((item) => item.draft.deck?.trim())
+      .filter((value): value is string => Boolean(value))
+
+    if (decksToRemember.length === 0) return
+    setDeckPool(rememberDeckNames(decksToRemember))
+    setDeckQuickPicks(loadDeckQuickPicks())
+  }, [draftItems])
 
   useEffect(() => {
     window.localStorage.setItem(WORKSPACE_MODE_STORAGE_KEY, workspaceMode)
@@ -207,6 +320,12 @@ export default function App() {
   }
 
   const refreshAnkiConnection = async (options?: { source?: 'startup' | 'manual' | 'create-deck' }) => {
+    if (!deviceProfile.canDirectAnki) {
+      setAnkiState(EMPTY_ANKI_STATE)
+      updateStatusTask('anki', { state: 'idle', progress: 0, detail: '移动端已跳过本机 Anki 检测。' })
+      return
+    }
+
     setAnkiState((current) => ({ ...current, ...ankiLoadingState() }))
     updateStatusTask('anki', { state: 'running', progress: 15, detail: '正在连接本机 AnkiConnect，并检查模板状态。' })
 
@@ -225,6 +344,9 @@ export default function App() {
           templateStatus: null,
         })
         updateStatusTask('anki', { state: 'error', progress: 100, detail: check.message })
+        if (options?.source === 'startup') {
+          promptAnkiHelpOnFirstFailure()
+        }
         return
       }
 
@@ -262,6 +384,9 @@ export default function App() {
         templateStatus: null,
       })
       updateStatusTask('anki', { state: 'error', progress: 100, detail: rawMessage })
+      if (options?.source === 'startup') {
+        promptAnkiHelpOnFirstFailure()
+      }
       if (options?.source === 'manual' || options?.source === 'create-deck') {
         throw error
       }
@@ -305,46 +430,61 @@ export default function App() {
   }
 
   const ingestFiles = async (files: FileList | File[], sourceLabel: string) => {
+    setIsImportingFiles(true)
+    setImportingLabel(sourceLabel)
+    const loadingToastId = toast.loading(`${sourceLabel}处理中`, {
+      description: '正在整理图片并加入列表，请稍等一下。',
+    })
     updateStatusTask('files', { state: 'running', progress: 5, detail: `正在整理 ${sourceLabel} 里的图片。` })
 
-    const items = await buildDraftItemsFromFiles(files, {
-      onProgress: ({ completed, total, fileName }) => {
-        updateStatusTask('files', {
-          state: 'running',
-          progress: Math.max(5, Math.round((completed / total) * 100)),
-          detail: `正在处理 ${fileName}（${completed}/${total}）。`,
-        })
-      },
-    })
+    try {
+      const items = await buildDraftItemsFromFiles(files, {
+        onProgress: ({ completed, total, fileName }) => {
+          updateStatusTask('files', {
+            state: 'running',
+            progress: Math.max(5, Math.round((completed / total) * 100)),
+            detail: `正在处理 ${fileName}（${completed}/${total}）。`,
+          })
+        },
+      })
 
-    if (items.length === 0) {
-      updateStatusTask('files', { state: 'error', progress: 100, detail: '没有找到可用的图片文件。' })
-      toast.error('没有找到可导入的图片', { description: '支持 png、jpg、jpeg、webp、bmp、gif。' })
-      return
+      if (items.length === 0) {
+        updateStatusTask('files', { state: 'error', progress: 100, detail: '没有找到可用的图片文件。' })
+        toast.dismiss(loadingToastId)
+        toast.error('没有找到可导入的图片', { description: '支持 png、jpg、jpeg、webp、bmp、gif。' })
+        return
+      }
+
+      let addedCount = 0
+      setDraftItems((current) => {
+        const merged = mergeImportedItems(current, items)
+        addedCount = merged.length - current.length
+        return merged
+      })
+      setSelectedDraftId((current) => current ?? items[0]?.draft.id ?? null)
+      setWorkspaceMode('manual')
+      updateStatusTask('files', {
+        state: 'success',
+        progress: 100,
+        detail:
+          addedCount === items.length
+            ? `${sourceLabel} 已完成，本次带入 ${items.length} 张图片。`
+            : `${sourceLabel} 已完成，新带入 ${addedCount} 张图片，跳过了 ${items.length - addedCount} 张重复图片。`,
+      })
+      toast.dismiss(loadingToastId)
+      toast.success(`${sourceLabel} 已完成`, {
+        description:
+          addedCount === items.length
+            ? `本次带入 ${items.length} 张图片。`
+            : `新带入 ${addedCount} 张图片，跳过了 ${items.length - addedCount} 张重复图片。`,
+      })
+    } catch (error) {
+      toast.dismiss(loadingToastId)
+      updateStatusTask('files', { state: 'error', progress: 100, detail: error instanceof Error ? error.message : '图片导入失败。' })
+      throw error
+    } finally {
+      setIsImportingFiles(false)
     }
-
-    let addedCount = 0
-    setDraftItems((current) => {
-      const merged = mergeImportedItems(current, items)
-      addedCount = merged.length - current.length
-      return merged
-    })
-    setSelectedDraftId((current) => current ?? items[0]?.draft.id ?? null)
-    setWorkspaceMode('manual')
-    updateStatusTask('files', {
-      state: 'success',
-      progress: 100,
-      detail:
-        addedCount === items.length
-          ? `${sourceLabel} 已完成，本次带入 ${items.length} 张图片。`
-          : `${sourceLabel} 已完成，新带入 ${addedCount} 张图片，跳过了 ${items.length - addedCount} 张重复图片。`,
-    })
-    toast.success(`${sourceLabel} 已完成`, {
-      description:
-        addedCount === items.length
-          ? `本次带入 ${items.length} 张图片。`
-          : `新带入 ${addedCount} 张图片，跳过了 ${items.length - addedCount} 张重复图片。`,
-    })
   }
 
   const onFileInputChange = async (event: ChangeEvent<HTMLInputElement>) => {
@@ -359,6 +499,40 @@ export default function App() {
     if (!files || files.length === 0) return
     await ingestFiles(files, '文件夹导入')
     event.target.value = ''
+  }
+
+  const onFileManagerInputChange = async (event: ChangeEvent<HTMLInputElement>) => {
+    const files = event.target.files
+    if (!files || files.length === 0) return
+    await ingestFiles(files, '文件管理器导入')
+    event.target.value = ''
+  }
+
+  const onDeckPoolBackupInputChange = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    if (!file) return
+
+    await run('import-deck-pool', async () => {
+      const importedDecks = await readDeckPoolBackup(file)
+      const mergedDecks = saveDeckPool([...deckPool, ...importedDecks])
+      setDeckPool(mergedDecks)
+      setDeckQuickPicks(loadDeckQuickPicks())
+      toast.success('牌组池备份已导入', {
+        description:
+          importedDecks.length > 0
+            ? `这次一共并入了 ${importedDecks.length} 个备份牌组名。`
+            : '这份备份文件里没有读到可用的牌组名。',
+      })
+    })
+
+    event.target.value = ''
+  }
+
+  const exportDeckPoolBackupFile = () => {
+    const { count } = downloadDeckPoolBackup(deckPool)
+    toast.success('牌组池备份已导出', {
+      description: count > 0 ? `这次打包了 ${count} 个本地牌组名。` : '当前牌组池是空的，已导出一份空备份。',
+    })
   }
 
   const patchDraft = async (payload: {
@@ -381,6 +555,10 @@ export default function App() {
       updated_at: nowIso(),
     }
     setDraftItems((current) => replaceDraft(current, nextDraft))
+    if (payload.deck !== undefined && payload.deck) {
+      setDeckPool(rememberDeckName(payload.deck))
+      setDeckQuickPicks(loadDeckQuickPicks())
+    }
     return nextDraft
   }
 
@@ -408,6 +586,7 @@ export default function App() {
     }
 
     await api.anki.createAnkiDeck(nextDeck)
+    setDeckPool(rememberDeckName(nextDeck))
     setAnkiState((current) => {
       const decks = [...new Set([...current.decks, nextDeck])].sort((left, right) => left.localeCompare(right, 'zh-CN'))
       return {
@@ -491,6 +670,85 @@ export default function App() {
     return { successCount, failedCount }
   }
 
+  const exportDraftsToApkg = async (targets: DraftListItem[]) => {
+    if (targets.length === 0) {
+      updateStatusTask('export', { state: 'error', progress: 100, detail: '当前没有可导出的卡片。' })
+      toast.error('当前没有可导出的卡片', { description: '先画出遮挡，再打开导出流程逐张确认牌组。' })
+      return { successCount: 0, failedCount: 0 }
+    }
+
+    updateStatusTask('export', { state: 'running', progress: 5, detail: '正在生成 APKG 卡包。' })
+
+    try {
+      const { blob, fileName } = await exportDraftsAsApkg({
+        items: targets,
+        packageName: `anki-image-cloze-${new Date().toISOString().slice(0, 10)}`,
+        imageQuality: quality,
+        onProgress: ({ completed, total, label }) => {
+          updateStatusTask('export', {
+            state: 'running',
+            progress: Math.max(10, Math.round((completed / total) * 100)),
+            detail: `已处理 ${completed}/${total} 项，最近一项：${label}`,
+          })
+        },
+      })
+
+      const delivery = await shareOrDownloadApkg({
+        blob,
+        fileName,
+        preferShare: deviceProfile.isMobileDevice,
+        tryOpenAfterDownload: deviceProfile.isMobileDevice,
+      })
+
+      const now = nowIso()
+      const exportedIds = new Set(targets.map((item) => item.draft.id))
+      setDraftItems((current) =>
+        current.map((item) =>
+          exportedIds.has(item.draft.id)
+            ? {
+                ...item,
+                draft: {
+                  ...item.draft,
+                  review_status: 'packaged',
+                  updated_at: now,
+                },
+              }
+            : item,
+        ),
+      )
+
+      updateStatusTask('export', {
+        state: 'success',
+        progress: 100,
+        detail:
+          delivery === 'shared'
+            ? `APKG 卡包已生成，并已打开分享面板。`
+            : delivery === 'downloaded-open-attempted'
+              ? `APKG 卡包已生成并开始下载，系统也已额外尝试打开它。`
+              : `APKG 卡包已生成并开始下载。`,
+      })
+      toast.success('APKG 卡包已生成', {
+        description:
+          delivery === 'shared'
+            ? '如果系统支持分享，你现在可以直接把卡包交给 Anki 应用。'
+            : delivery === 'downloaded-open-attempted'
+              ? '下载已经开始，网页也顺手试了一次唤起可接收这个卡包的应用。'
+              : '下载完成后，可以手动用 Anki 或 AnkiDroid 导入。',
+      })
+      return { successCount: targets.length, failedCount: 0 }
+    } catch (error) {
+      updateStatusTask('export', { state: 'error', progress: 100, detail: error instanceof Error ? error.message : '生成 APKG 卡包失败。' })
+      throw error
+    }
+  }
+
+  const exportDrafts = async (targets: DraftListItem[], destination: 'anki' | 'apkg') => {
+    if (destination === 'anki') {
+      return importDraftsToAnki(targets)
+    }
+    return exportDraftsToApkg(targets)
+  }
+
   const {
     exportDialogOpen,
     exportStage,
@@ -507,6 +765,8 @@ export default function App() {
     handleExportDialogChange,
     confirmCurrentExportCard,
     goToPreviousExportCard,
+    goToNextExportCard,
+    goToExportCard,
     exportAllFromFlow,
   } = useExportFlow({
     draftItems,
@@ -514,7 +774,7 @@ export default function App() {
     selectedItem,
     loadingKey,
     patchDraft,
-    importDraftsToAnki,
+    exportDrafts,
     run,
   })
 
@@ -527,7 +787,7 @@ export default function App() {
         const groups = new Set(item.draft.masks.map((mask) => mask.card_group_id || mask.id))
         return sum + groups.size
       }, 0),
-      exported: active.filter((item) => item.draft.review_status === 'imported').length,
+      exported: active.filter((item) => item.draft.review_status === 'imported' || item.draft.review_status === 'packaged').length,
     }
   }, [draftItems])
 
@@ -535,7 +795,7 @@ export default function App() {
     if (summary.images === 0) {
       return {
         step: 'import' as const,
-        hint: '先带入一批图片，左侧列表才会出现。',
+        hint: deviceProfile.isMobileLayout ? '先带入一批图片，下面会出现移动端图片列表。' : '先带入一批图片，左侧列表才会出现。',
         action: 'upload' as WorkspaceGuideAction,
         actionLabel: '上传图片',
       }
@@ -543,7 +803,7 @@ export default function App() {
     if (!selectedItem) {
       return {
         step: 'mask' as const,
-        hint: '先从左侧选中一张图，再开始框选。',
+        hint: deviceProfile.isMobileLayout ? '先从上方图片区选中一张图，再往下继续。' : '先从左侧选中一张图，再开始框选。',
         action: null as WorkspaceGuideAction,
         actionLabel: null,
       }
@@ -551,26 +811,46 @@ export default function App() {
     if (selectedItem.draft.masks.length === 0) {
       return {
         step: 'mask' as const,
-        hint: '直接在中间框出要挖空的区域，预览会马上跟着变化。',
+        hint: deviceProfile.isMobileDevice ? '移动端请先进入聚焦编辑，再开始画遮罩。' : '直接在中间框出要挖空的区域，预览会马上跟着变化。',
         action: null as WorkspaceGuideAction,
         actionLabel: null,
       }
     }
-    if (!ankiState.checked || !ankiState.ok) {
+    if (deviceProfile.canDirectAnki && (!ankiState.checked || !ankiState.ok)) {
       return {
         step: 'anki' as const,
-        hint: '导出前先确认网页已经连到你本机的 Anki。',
-        action: 'refresh-anki' as WorkspaceGuideAction,
-        actionLabel: '检查 Anki',
+        hint: (
+          <>
+            现在已经可以导出卡片了；如果你想一键写进本机 Anki，可以先检查
+            <span className="mx-1 inline-flex">
+              <InlineEmphasis onClick={() => setAnkiHelpOpen(true)}>AnkiConnect</InlineEmphasis>
+            </span>
+            直连状态。
+          </>
+        ),
+        action: 'open-export' as WorkspaceGuideAction,
+        actionLabel: '打开导出',
       }
     }
     return {
       step: 'export' as const,
-      hint: `现在可以进入导出确认，当前有 ${exportQueue.length} 张图片已经就绪。`,
+      hint: deviceProfile.isMobileDevice ? (
+        <>
+          现在可以进入导出确认，生成
+          <span className="mx-1 inline-flex">
+            <InlineEmphasis hint="下载后可直接交给 AnkiDroid 打开。" touchOptimized>
+              APKG
+            </InlineEmphasis>
+          </span>
+          卡包；当前有 {exportQueue.length} 张图片已经就绪。
+        </>
+      ) : (
+        <>现在可以进入导出确认，当前有 {exportQueue.length} 张图片已经就绪。</>
+      ),
       action: 'open-export' as WorkspaceGuideAction,
       actionLabel: '打开导出',
     }
-  }, [ankiState.checked, ankiState.ok, exportQueue.length, selectedItem, summary.images])
+  }, [ankiState.checked, ankiState.ok, deviceProfile.canDirectAnki, deviceProfile.isMobileDevice, deviceProfile.isMobileLayout, exportQueue.length, selectedItem, summary.images])
 
   const runGuideAction = async (action: WorkspaceGuideAction) => {
     if (action === 'upload') {
@@ -589,70 +869,200 @@ export default function App() {
     }
   }
 
+  const selectPreviousDraft = () => {
+    if (selectedDraftIndex <= 0) return
+    const previousItem = activeDraftItems[selectedDraftIndex - 1]
+    if (previousItem) {
+      setSelectedDraftId(previousItem.draft.id)
+    }
+  }
+
+  const selectNextDraft = () => {
+    if (selectedDraftIndex < 0 || selectedDraftIndex >= activeDraftItems.length - 1) return
+    const nextItem = activeDraftItems[selectedDraftIndex + 1]
+    if (nextItem) {
+      setSelectedDraftId(nextItem.draft.id)
+    }
+  }
+
+  useEffect(() => {
+    if (!storageReady) return
+    if (draftItems.some((item) => item.image.source_path === STARTUP_SAMPLE_PATH)) return
+
+    let cancelled = false
+
+    const appendStartupSample = async () => {
+      try {
+        const sample = await buildDraftItemFromAsset(ankiHelpImage, '启动测试图.webp', STARTUP_SAMPLE_PATH)
+        if (cancelled) {
+          releaseDraftItems([sample])
+          return
+        }
+        setDraftItems((current) => {
+          if (current.some((item) => item.image.source_path === STARTUP_SAMPLE_PATH)) {
+            releaseDraftItems([sample])
+            return current
+          }
+          return mergeImportedItems(current, [sample])
+        })
+        setSelectedDraftId((current) => current ?? sample.draft.id)
+      } catch {
+        // 内置测试图不是主流程，不打断用户当前工作。
+      }
+    }
+
+    void appendStartupSample()
+    return () => {
+      cancelled = true
+    }
+  }, [draftItems, storageReady])
+
   return (
     <div className="min-h-screen bg-[radial-gradient(circle_at_top_left,_rgba(148,163,184,0.16),_transparent_28%),radial-gradient(circle_at_top_right,_rgba(255,255,255,0.7),_transparent_18%),linear-gradient(180deg,#f8fafc_0%,#f1f5f9_100%)] text-foreground">
-      <input ref={fileInputRef} type="file" accept="image/*" multiple className="hidden" onChange={(event) => void onFileInputChange(event)} />
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept={MOBILE_IMAGE_ACCEPT}
+        multiple
+        className="hidden"
+        onChange={(event) => void onFileInputChange(event)}
+      />
+      <input
+        ref={fileManagerInputRef}
+        type="file"
+        multiple
+        className="hidden"
+        onChange={(event) => void onFileManagerInputChange(event)}
+      />
       <input
         ref={folderInputRef}
         type="file"
-        accept="image/*"
+        accept={MOBILE_IMAGE_ACCEPT}
         multiple
         className="hidden"
         onChange={(event) => void onFolderInputChange(event)}
         {...({ webkitdirectory: '', directory: '' } as DirectoryInputProps)}
       />
+      <input
+        ref={deckPoolInputRef}
+        type="file"
+        accept=".json,application/json"
+        className="hidden"
+        onChange={(event) => void onDeckPoolBackupInputChange(event)}
+      />
 
       <div className="mx-auto flex min-h-screen max-w-[1600px] flex-col gap-4 px-4 py-4 md:px-6">
-        <div className={editorHoverActive ? 'transition-[opacity,filter] duration-200 opacity-55 saturate-75' : 'transition-[opacity,filter] duration-200'}>
+        <div className={!deviceProfile.isMobileDevice && editorHoverActive ? 'transition-[opacity,filter] duration-200 opacity-55 saturate-75' : 'transition-[opacity,filter] duration-200'}>
           <WorkbenchHeader
             workspaceMode={workspaceMode}
             onWorkspaceModeChange={setWorkspaceMode}
             manualGuide={manualGuide}
             loadingKey={loadingKey}
             onUploadImages={() => fileInputRef.current?.click()}
+            onImportFiles={() => fileManagerInputRef.current?.click()}
             onImportFolder={() => folderInputRef.current?.click()}
             onRestoreProject={() => void run('restore-project', restoreSavedProject)}
             onRefreshAnki={() => void run('refresh-anki', () => refreshAnkiConnection({ source: 'manual' }))}
             onClearProject={() => void run('clear-project', clearLocalProject)}
+            onExportDeckPoolBackup={deviceProfile.isMobileDevice ? exportDeckPoolBackupFile : undefined}
+            onImportDeckPoolBackup={deviceProfile.isMobileDevice ? () => deckPoolInputRef.current?.click() : undefined}
             onGuideAction={(action) => void runGuideAction(action)}
+            showAnkiActions={deviceProfile.canDirectAnki}
+            mobileOptimized={deviceProfile.isMobileDevice}
+            ankiHelpOpen={ankiHelpOpen}
+            onAnkiHelpOpenChange={setAnkiHelpOpen}
+            onOpenAnkiHelp={() => setAnkiHelpOpen(true)}
+            touchOptimized={deviceProfile.isTouchLike}
           />
         </div>
 
-        {workspaceMode === 'pipeline' ? (
-          <PipelinePlaceholder />
+        {showWorkspaceLoadingShell ? (
+          <WorkspaceLoadingShell mobile={deviceProfile.isMobileLayout} />
         ) : (
-          <div ref={manualLayoutRef} className="min-h-[calc(100vh-220px)]">
-            <ResizablePanelGroup orientation="horizontal" className="min-h-[calc(100vh-220px)] rounded-2xl border border-border/70 bg-background/90 shadow-lg shadow-slate-900/5 backdrop-blur">
-              <ResizablePanel defaultSize={manualProjectPanelPercent} minSize={manualProjectPanelPercent}>
-                <div
-                  className={editorHoverActive ? 'h-full min-w-[340px] transition-[opacity,filter] duration-200 opacity-55 saturate-75' : 'h-full min-w-[340px] transition-[opacity,filter] duration-200'}
-                >
-                  <ManualDraftList items={draftItems} selectedDraftId={selectedItem?.draft.id ?? null} onSelect={setSelectedDraftId} />
-                </div>
-              </ResizablePanel>
-              <ResizableHandle withHandle />
-              <ResizablePanel defaultSize={100 - manualProjectPanelPercent} minSize={60}>
-                <ManualWorkspace
-                  selectedItem={selectedItem}
-                  onMasksCommit={commitMasks}
-                  onCropCommit={commitCrop}
-                  focusShortcutEnabled={!exportDialogOpen}
-                  onEditorHoverChange={setEditorHoverActive}
+          <div className="relative">
+            {workspaceMode === 'pipeline' ? (
+              <PipelinePlaceholder />
+            ) : deviceProfile.isMobileLayout ? (
+              <div className="flex min-h-[calc(100vh-220px)] flex-col gap-4">
+                <ManualDraftList
+                  items={draftItems}
+                  selectedDraftId={selectedItem?.draft.id ?? null}
+                  onSelect={setSelectedDraftId}
+                  mobileLayout
                 />
-              </ResizablePanel>
-            </ResizablePanelGroup>
+                <div className="rounded-2xl border border-border/70 bg-background/90 shadow-lg shadow-slate-900/5 backdrop-blur">
+                  <ManualWorkspace
+                    selectedItem={selectedItem}
+                    onMasksCommit={commitMasks}
+                    onCropCommit={commitCrop}
+                    focusShortcutEnabled={!exportDialogOpen}
+                    onEditorHoverChange={setEditorHoverActive}
+                    readOnlyInWorkspace={deviceProfile.isMobileDevice}
+                    touchOptimized={deviceProfile.isTouchLike}
+                    onPreviousItem={selectPreviousDraft}
+                    onNextItem={selectNextDraft}
+                    canGoPrevious={selectedDraftIndex > 0}
+                    canGoNext={selectedDraftIndex >= 0 && selectedDraftIndex < activeDraftItems.length - 1}
+                  />
+                </div>
+              </div>
+            ) : (
+              <div ref={manualLayoutRef} className="min-h-[calc(100vh-220px)]">
+                <ResizablePanelGroup orientation="horizontal" className="min-h-[calc(100vh-220px)] rounded-2xl border border-border/70 bg-background/90 shadow-lg shadow-slate-900/5 backdrop-blur">
+                  <ResizablePanel defaultSize={manualProjectPanelPercent} minSize={manualProjectPanelPercent}>
+                    <div
+                      className={editorHoverActive ? 'h-full min-w-[340px] transition-[opacity,filter] duration-200 opacity-55 saturate-75' : 'h-full min-w-[340px] transition-[opacity,filter] duration-200'}
+                    >
+                      <ManualDraftList items={draftItems} selectedDraftId={selectedItem?.draft.id ?? null} onSelect={setSelectedDraftId} />
+                    </div>
+                  </ResizablePanel>
+                  <ResizableHandle withHandle />
+                  <ResizablePanel defaultSize={100 - manualProjectPanelPercent} minSize={60}>
+                    <ManualWorkspace
+                      selectedItem={selectedItem}
+                      onMasksCommit={commitMasks}
+                      onCropCommit={commitCrop}
+                      focusShortcutEnabled={!exportDialogOpen}
+                      onEditorHoverChange={setEditorHoverActive}
+                      onPreviousItem={selectPreviousDraft}
+                      onNextItem={selectNextDraft}
+                      canGoPrevious={selectedDraftIndex > 0}
+                      canGoNext={selectedDraftIndex >= 0 && selectedDraftIndex < activeDraftItems.length - 1}
+                    />
+                  </ResizablePanel>
+                </ResizablePanelGroup>
+              </div>
+            )}
+
+            {showWorkspaceProcessingOverlay ? (
+              <div className="absolute inset-0 z-30 flex items-center justify-center rounded-2xl border border-border/60 bg-background/78 backdrop-blur-sm">
+                <div className="flex w-full max-w-xl flex-col gap-4 rounded-3xl border border-border/60 bg-background/96 p-5 shadow-xl shadow-slate-900/5">
+                  <div className="flex items-center gap-3">
+                    <Skeleton className="size-10 rounded-2xl" />
+                    <div className="flex min-w-0 flex-1 flex-col gap-2">
+                      <Skeleton className="h-5 w-36 rounded-full" />
+                      <div className="text-sm text-muted-foreground">{workspaceProcessingText}</div>
+                    </div>
+                  </div>
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <Skeleton className="h-28 w-full rounded-2xl" />
+                    <Skeleton className="h-28 w-full rounded-2xl" />
+                  </div>
+                </div>
+              </div>
+            ) : null}
           </div>
         )}
       </div>
 
-      <StatusCapsule tasks={orderedStatusTasks} side="left" />
+      {!deviceProfile.isMobileDevice ? <StatusCapsule tasks={orderedStatusTasks} side="left" /> : null}
 
       {workspaceMode === 'manual' ? (
-        <div className="pointer-events-none fixed right-4 bottom-4 z-50">
+        <div className={deviceProfile.isMobileLayout ? 'pointer-events-none fixed inset-x-4 bottom-4 z-50' : 'pointer-events-none fixed right-4 bottom-4 z-50'}>
           <Button
             type="button"
             size="lg"
-            className="pointer-events-auto rounded-full shadow-lg shadow-slate-900/10 cursor-pointer hover:translate-y-1 hover:h-12 hover:px-4 hover:bg-white hover:text-black active:scale-[0.99]"
+            className={deviceProfile.isMobileLayout ? 'pointer-events-auto h-12 w-full rounded-2xl shadow-lg shadow-slate-900/10' : 'pointer-events-auto rounded-full shadow-lg shadow-slate-900/10 cursor-pointer hover:translate-y-1 hover:h-12 hover:px-4 hover:bg-white hover:text-black active:scale-[0.99]'}
             onClick={() => {
               if (exportQueue.length === 0) {
                 updateStatusTask('export', { state: 'error', progress: 100, detail: '当前还没有可以进入导出流程的图片。' })
@@ -680,20 +1090,29 @@ export default function App() {
         onDeckInputChange={setDeckInput}
         onTagsInputChange={setTagsInput}
         deckOptions={deckOptions}
+        deckQuickPicks={deckQuickPicks}
         ankiState={ankiState}
         onRefreshDecks={() => void run('refresh-anki', () => refreshAnkiConnection({ source: 'manual' }))}
         onCreateDeck={() => void run('create-deck', createCurrentDeckInAnki)}
         onConfirmCurrent={() => void run('confirm-export-card', confirmCurrentExportCard)}
         onPrevious={goToPreviousExportCard}
+        onNext={goToNextExportCard}
+        onSelectIndex={goToExportCard}
         onBackToReview={() => setExportStage('review')}
         quality={quality}
         onQualityChange={setQuality}
-        onExportAll={exportAllFromFlow}
+        onExportToAnki={() => void exportAllFromFlow('anki')}
+        onExportToApkg={() => void exportAllFromFlow('apkg')}
         onMasksCommit={commitMasks}
         onCropCommit={commitCrop}
         isRefreshingDecks={loadingKey === 'refresh-anki' || ankiState.level === 'loading'}
         isCreatingDeck={loadingKey === 'create-deck'}
-        isExporting={loadingKey === 'manual-export-all'}
+        isExportingAnki={loadingKey === 'manual-export-anki'}
+        isExportingApkg={loadingKey === 'manual-export-apkg'}
+        allowDirectAnki={deviceProfile.canDirectAnki}
+        deckPickerMode={deviceProfile.canDirectAnki ? 'anki' : 'local'}
+        touchOptimized={deviceProfile.isTouchLike}
+        onOpenAnkiHelp={() => setAnkiHelpOpen(true)}
       />
     </div>
   )

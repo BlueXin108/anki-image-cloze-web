@@ -83,6 +83,8 @@ async function renderPreviewUrl(options: {
   masks: MaskRect[]
   selectedGroupId: string | null
   mode: 'front' | 'back'
+  outputType?: string
+  outputQuality?: number
 }): Promise<string> {
   const image = await loadImage(options.sourceUrl)
   const crop = clampBox(options.crop, options.imageWidth, options.imageHeight)
@@ -105,7 +107,11 @@ async function renderPreviewUrl(options: {
   )
 
   options.masks.forEach((mask) => drawMaskRect(context, mask, crop, options.selectedGroupId, options.mode))
-  return canvas.toDataURL('image/png')
+  const outputType = options.outputType || 'image/png'
+  const outputQuality = typeof options.outputQuality === 'number'
+    ? Math.max(0.1, Math.min(1, options.outputQuality))
+    : undefined
+  return canvas.toDataURL(outputType, outputQuality)
 }
 
 export async function renderDraftPreviewSet(options: {
@@ -114,6 +120,8 @@ export async function renderDraftPreviewSet(options: {
   imageWidth: number
   imageHeight: number
   selectedGroupId: string | null
+  outputType?: string
+  outputQuality?: number
 }): Promise<ManualPreviewSet> {
   const crop = options.draft.crop?.bbox ?? [0, 0, options.imageWidth, options.imageHeight]
   const selectedGroupId = options.selectedGroupId ?? groupMasksByCard(options.draft.masks)[0]?.groupId ?? null
@@ -126,6 +134,8 @@ export async function renderDraftPreviewSet(options: {
       masks: options.draft.masks,
       selectedGroupId,
       mode: 'front',
+      outputType: options.outputType,
+      outputQuality: options.outputQuality,
     }),
     renderPreviewUrl({
       sourceUrl: options.sourceUrl,
@@ -135,6 +145,8 @@ export async function renderDraftPreviewSet(options: {
       masks: options.draft.masks,
       selectedGroupId,
       mode: 'back',
+      outputType: options.outputType,
+      outputQuality: options.outputQuality,
     }),
   ])
   return { frontUrl, backUrl }

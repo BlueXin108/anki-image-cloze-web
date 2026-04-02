@@ -10,6 +10,7 @@ import {
   SaveIcon,
   SearchIcon,
   SparklesIcon,
+  Layers3Icon,
 } from 'lucide-react'
 
 import type { AnkiConnectionState } from '@/types'
@@ -27,6 +28,7 @@ import { cn } from '@/lib/utils'
 
 interface DeckPickerProps {
   decks: string[]
+  deckQuickPicks?: string[]
   value: string
   onValueChange: (value: string) => void
   onSave: () => void
@@ -38,6 +40,7 @@ interface DeckPickerProps {
   compact?: boolean
   hideSaveAction?: boolean
   embedded?: boolean
+  mode?: 'anki' | 'local'
 }
 
 interface DeckTreeNode {
@@ -230,14 +233,14 @@ function SuggestionList({
   if (decks.length === 0) return null
 
   return (
-    <div className="absolute top-full right-0 left-0 z-50 mt-2 overflow-hidden rounded-2xl border border-border/70 bg-background shadow-lg shadow-black/5">
+    <div className="absolute bottom-full right-0 left-0 z-50 mb-2 overflow-hidden rounded-2xl border border-border/70 bg-background shadow-lg shadow-black/5">
       <ScrollArea className="max-h-56">
         <div className="flex flex-col gap-1 p-2">
           {decks.map((deck) => (
             <button
               key={deck}
               type="button"
-              onMouseDown={(event) => {
+              onPointerDown={(event) => {
                 event.preventDefault()
                 onPick(deck)
               }}
@@ -271,6 +274,7 @@ function DeckNameInput({
       <Input
         value={value}
         onChange={(event) => onValueChange(event.target.value)}
+        className='text-sm'
         onFocus={() => setFocused(true)}
         onBlur={() => {
           window.setTimeout(() => setFocused(false), 80)
@@ -313,6 +317,7 @@ function DeckStatusInline({
 
 export function DeckPicker({
   decks,
+  deckQuickPicks = [],
   value,
   onValueChange,
   onSave,
@@ -324,13 +329,19 @@ export function DeckPicker({
   compact = false,
   hideSaveAction = false,
   embedded = false,
+  mode = 'anki',
 }: DeckPickerProps) {
   const [search, setSearch] = useState('')
+  const isLocalMode = mode === 'local'
   const filteredDecks = useMemo(() => filterDecks(decks, search), [decks, search])
   const treeNodes = useMemo(() => buildDeckTree(filteredDecks), [filteredDecks])
   const normalizedValue = value.trim()
   const hasExactDeck = decks.includes(normalizedValue)
   const suggestions = useMemo(() => suggestDecks(decks, normalizedValue), [decks, normalizedValue])
+  const quickPicks = useMemo(
+    () => deckQuickPicks.filter((deck) => deck !== normalizedValue).slice(0, 20),
+    [deckQuickPicks, normalizedValue],
+  )
 
   const deckBrowser = (
     <Dialog>
@@ -340,10 +351,19 @@ export function DeckPicker({
           浏览器
         </Button>
       </DialogTrigger>
-      <DialogContent className="flex h-[88vh] w-[94vw] max-w-[94vw] flex-col overflow-hidden p-0 sm:w-[82vw] sm:max-w-[82vw] lg:w-[72vw] lg:max-w-[72vw] xl:min-w-[60vw] xl:max-w-[68vw]">
+      <DialogContent 
+        className="flex h-[88vh] w-[94vw] max-w-[94vw] flex-col overflow-hidden p-0 sm:w-[82vw] sm:max-w-[82vw] lg:w-[72vw] lg:max-w-[72vw] xl:min-w-[60vw] xl:max-w-[68vw]"
+        onOpenAutoFocus={(e) => {
+          if (typeof window !== 'undefined' && window.innerWidth < 768) {
+            e.preventDefault()
+          }
+        }}
+      >
         <DialogHeader className="border-b border-border/60 px-5 py-6">
           <DialogTitle>牌组浏览器</DialogTitle>
-          <DialogDescription>把搜索、输入、选中和动作收在同一视图里，不再分散处理。</DialogDescription>
+          <DialogDescription>
+            {isLocalMode ? '这里展示你在当前设备上记住的本地牌组池。' : '把搜索、输入、选中和动作收在同一视图里，不再分散处理。'}
+          </DialogDescription>
         </DialogHeader>
 
         <div className="flex min-h-0 flex-1 flex-col gap-4 px-5 py-4">
@@ -362,11 +382,11 @@ export function DeckPicker({
               value={value}
               onValueChange={onValueChange}
               suggestions={suggestions}
-              placeholder="输入或选中牌组"
+              placeholder="输入新派组或选中牌组"
             />
           </div>
 
-          <DeckStatusInline ankiState={ankiState} deckCount={decks.length} />
+          {!isLocalMode ? <DeckStatusInline ankiState={ankiState} deckCount={decks.length} /> : null}
 
           <div className="min-h-0 flex-1 overflow-hidden rounded-2xl border border-border/60 bg-muted/20">
             <ScrollArea className="h-full">
@@ -384,26 +404,32 @@ export function DeckPicker({
         </div>
 
         <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border/60 px-5 py-4">
-          <div className="text-sm text-muted-foreground">
+          <div className="text-xs text-muted-foreground">
             {hasExactDeck
               ? `当前会使用现有牌组：${normalizedValue}`
               : normalizedValue
                 ? `当前会新建或保存为：${normalizedValue}`
-                : '先选或先输入一个牌组'}
+                : '先选择或先输入一个牌组'}
           </div>
 
           <div className="flex flex-wrap gap-2">
-            <Button variant="outline" onClick={onRefreshDecks}>
-              {isRefreshing ? <Spinner data-icon="inline-start" /> : <RefreshCcwIcon data-icon="inline-start" />}
-              刷新牌组
-            </Button>
-            <Button variant="secondary" onClick={onCreateDeck} disabled={!normalizedValue || hasExactDeck}>
-              {isCreating ? <Spinner data-icon="inline-start" /> : <PlusIcon data-icon="inline-start" />}
-              新建牌组
-            </Button>
+            {!isLocalMode ? (
+              <>
+                <Button variant="outline" onClick={onRefreshDecks}>
+                  {isRefreshing ? <Spinner data-icon="inline-start" /> : <RefreshCcwIcon data-icon="inline-start" />}
+                  刷新牌组
+                </Button>
+                <Button variant="secondary" onClick={onCreateDeck} disabled={!normalizedValue || hasExactDeck}>
+                  {isCreating ? <Spinner data-icon="inline-start" /> : <PlusIcon data-icon="inline-start" />}
+                  新建牌组
+                </Button>
+              </>
+            ) : null}
             <Button onClick={onSave} disabled={!normalizedValue}>
               <SaveIcon data-icon="inline-start" />
-              选中并保存
+              {!hasExactDeck&&normalizedValue?'新建并保存':
+                isLocalMode ? '保存到本地池' : '选中并保存'}
+              
             </Button>
           </div>
         </div>
@@ -414,20 +440,31 @@ export function DeckPicker({
   const header = embedded ? (
     <div className="flex flex-wrap items-start justify-between gap-3">
       <div className="min-w-0 flex-1">
-        <div className="text-sm font-medium">牌组</div>
-        <div className="mt-1 text-xs text-muted-foreground">输入时会按已同步牌组即时补全。</div>
+        <div className="flex items-center gap-1.5 text-sm font-medium">
+          {compact ? null : <Layers3Icon className="size-4 text-muted-foreground" />}
+          牌组
+        </div>
+        {!compact && (
+          <div className="mt-1 text-xs text-muted-foreground">
+            {isLocalMode ? '这里会记住你在当前设备上用过的牌组名称。' : '输入时会按已同步牌组即时补全。'}
+          </div>
+        )}
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
         {deckBrowser}
-        <Button variant="outline" size="sm" onClick={onRefreshDecks}>
-          {isRefreshing ? <Spinner data-icon="inline-start" /> : <RefreshCcwIcon data-icon="inline-start" />}
-          获取牌组
-        </Button>
-        <Button variant="secondary" size="sm" onClick={onCreateDeck} disabled={!normalizedValue || hasExactDeck}>
-          {isCreating ? <Spinner data-icon="inline-start" /> : <PlusIcon data-icon="inline-start" />}
-          新建
-        </Button>
+        {!isLocalMode ? (
+          <>
+            <Button variant="outline" size="sm" onClick={onRefreshDecks}>
+              {isRefreshing ? <Spinner data-icon="inline-start" /> : <RefreshCcwIcon data-icon="inline-start" />}
+              获取牌组
+            </Button>
+            <Button variant="secondary" size="sm" onClick={onCreateDeck} disabled={!normalizedValue || hasExactDeck}>
+              {isCreating ? <Spinner data-icon="inline-start" /> : <PlusIcon data-icon="inline-start" />}
+              新建
+            </Button>
+          </>
+        ) : null}
       </div>
     </div>
   ) : (
@@ -435,7 +472,9 @@ export function DeckPicker({
       <div className="min-w-0 flex-1">
         <CardTitle>{compact ? '牌组' : '目标牌组'}</CardTitle>
         <CardDescription>
-          {compact
+          {isLocalMode
+            ? '这里会优先使用当前设备里保存过的牌组名称。'
+            : compact
             ? '先选或输入牌组；输入时会按已拿到的牌组即时补全。'
             : '支持直接输入、即时补全，以及打开树形浏览器做最终确认。'}
         </CardDescription>
@@ -443,14 +482,18 @@ export function DeckPicker({
 
       <div className="flex flex-wrap items-center gap-2">
         {deckBrowser}
-        <Button variant="outline" size={compact ? 'sm' : 'default'} onClick={onRefreshDecks}>
-          {isRefreshing ? <Spinner data-icon="inline-start" /> : <RefreshCcwIcon data-icon="inline-start" />}
-          获取牌组
-        </Button>
-        <Button variant="secondary" size={compact ? 'sm' : 'default'} onClick={onCreateDeck} disabled={!normalizedValue || hasExactDeck}>
-          {isCreating ? <Spinner data-icon="inline-start" /> : <PlusIcon data-icon="inline-start" />}
-          新建
-        </Button>
+        {!isLocalMode ? (
+          <>
+            <Button variant="outline" size={compact ? 'sm' : 'default'} onClick={onRefreshDecks}>
+              {isRefreshing ? <Spinner data-icon="inline-start" /> : <RefreshCcwIcon data-icon="inline-start" />}
+              获取牌组
+            </Button>
+            <Button variant="secondary" size={compact ? 'sm' : 'default'} onClick={onCreateDeck} disabled={!normalizedValue || hasExactDeck}>
+              {isCreating ? <Spinner data-icon="inline-start" /> : <PlusIcon data-icon="inline-start" />}
+              新建
+            </Button>
+          </>
+        ) : null}
       </div>
     </div>
   )
@@ -471,25 +514,43 @@ export function DeckPicker({
           </Field>
         </FieldGroup>
 
-        <div className="flex flex-wrap items-center gap-2">
-          {hasExactDeck ? (
-            <Badge variant="secondary">
-              <CheckIcon data-icon="inline-start" />
-              已匹配现有牌组
-            </Badge>
-          ) : normalizedValue ? (
-            <Badge variant="outline">将作为新牌组名称</Badge>
-          ) : (
-            <Badge variant="outline">等待选择</Badge>
-          )}
-          <DeckStatusInline ankiState={ankiState} deckCount={decks.length} compact={compact} />
-        </div>
+        {quickPicks.length > 0 ? (
+          <div className="flex flex-col gap-2">
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <Layers3Icon className="size-3.5" />
+              <span>近期常用牌组</span>
+            </div>
+            <div className="overflow-hidden rounded-2xl border border-border/60 bg-muted/10">
+              <ScrollArea className="max-h-[8.5rem]">
+                <div className="grid grid-cols-1 gap-2 p-2 sm:grid-cols-2">
+                  {quickPicks.map((deck) => (
+                    <button
+                      key={deck}
+                      type="button"
+                      onClick={() => onValueChange(deck)}
+                      className={cn(
+                        'rounded-xl border px-3 py-2 text-left text-sm transition',
+                        value.trim() === deck
+                          ? 'border-amber-300/80 bg-amber-50/80'
+                          : 'border-border/60 bg-background/85 hover:border-border hover:bg-muted/40',
+                      )}
+                    >
+                      <div className="line-clamp-2 leading-5">{deck}</div>
+                    </button>
+                  ))}
+                </div>
+              </ScrollArea>
+            </div>
+          </div>
+        ) : null}
+
+        {!isLocalMode ? <DeckStatusInline ankiState={ankiState} deckCount={decks.length} compact={compact} /> : null}
 
         {!hideSaveAction ? (
           <div className="flex flex-wrap gap-2">
             <Button onClick={onSave} disabled={!normalizedValue}>
               <SaveIcon data-icon="inline-start" />
-              保存到当前图片
+              {isLocalMode ? '保存并记住这个牌组' : '保存到当前图片'}
             </Button>
           </div>
         ) : null}

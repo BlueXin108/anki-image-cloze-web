@@ -14,7 +14,7 @@ export const EMPTY_ANKI_STATE: AnkiConnectionState = {
   templateStatus: null,
 }
 
-export const STATUS_TASK_ORDER: StatusTaskId[] = ['anki', 'files', 'restore', 'save', 'export']
+export const STATUS_TASK_ORDER: StatusTaskId[] = ['anki', 'restore', 'save']
 
 export function createInitialStatusTasks(): Record<StatusTaskId, StatusTaskState> {
   return {
@@ -22,7 +22,7 @@ export function createInitialStatusTasks(): Record<StatusTaskId, StatusTaskState
     files: { id: 'files', label: '图片带入', state: 'idle', progress: 0, detail: '等待你上传图片或导入文件夹。' },
     restore: { id: 'restore', label: '项目恢复', state: 'idle', progress: 0, detail: '浏览器尚未执行恢复检查。' },
     save: { id: 'save', label: '本地保存', state: 'idle', progress: 0, detail: '等待下一次自动保存。' },
-    export: { id: 'export', label: '导出到 Anki', state: 'idle', progress: 0, detail: '当前还没有执行导出。' },
+    export: { id: 'export', label: '导出卡片', state: 'idle', progress: 0, detail: '当前还没有执行导出。' },
   }
 }
 
