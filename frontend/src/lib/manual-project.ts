@@ -1,4 +1,5 @@
-import type { CropSuggestion, DraftListItem, WorkspaceMode } from '@/types'
+import type { CropSuggestion, DraftListItem, WorkspaceMode, WorkbenchSettings } from '@/types'
+import { normalizeImportedImage } from '@/lib/image-processing'
 
 const IMAGE_TYPES = new Set([
   'image/png',
@@ -12,6 +13,8 @@ export interface BuildDraftProgress {
   completed: number
   total: number
   fileName: string
+  percent: number
+  stageLabel: string
 }
 
 interface DraftBlobSource {
@@ -146,18 +149,39 @@ export async function buildDraftItemsFromFiles(
   files: FileList | File[],
   options?: {
     onProgress?: (progress: BuildDraftProgress) => void
+    settings?: WorkbenchSettings
   },
 ): Promise<DraftListItem[]> {
   const list = [...files].filter((file) => IMAGE_TYPES.has(file.type) || /\.(png|jpe?g|webp|bmp|gif)$/i.test(file.name))
   const items: DraftListItem[] = []
 
   for (const [index, file] of list.entries()) {
-    const item = await buildDraftItemFromFile(file)
+    const normalized = options?.settings
+      ? await normalizeImportedImage(file, options.settings, (progress) => {
+          options?.onProgress?.({
+            completed: index,
+            total: list.length,
+            fileName: file.name,
+            percent: Math.max(1, Math.round(((index + progress.progress / 100) / Math.max(list.length, 1)) * 100)),
+            stageLabel: progress.label,
+          })
+        })
+      : { blob: file as Blob, mediaType: file.type || 'image/png' }
+
+    const extended = file as File & { webkitRelativePath?: string }
+    const item = await buildDraftItemFromBlob({
+      blob: normalized.blob,
+      name: file.name,
+      relativePath: extended.webkitRelativePath?.trim() || file.name,
+      mediaType: normalized.mediaType,
+    })
     items.push(item)
     options?.onProgress?.({
       completed: index + 1,
       total: list.length,
       fileName: file.name,
+      percent: Math.max(1, Math.round(((index + 1) / Math.max(list.length, 1)) * 100)),
+      stageLabel: options?.settings?.importCompressionEnabled ? '当前图片处理完成' : '当前图片已加入项目',
     })
   }
 

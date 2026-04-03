@@ -1,6 +1,8 @@
 export type BBox = [number, number, number, number]
 export type WorkspaceMode = 'pipeline' | 'manual'
 export type DraftReviewStatus = 'draft' | 'imported' | 'packaged'
+export type ImageExportFormat = 'webp' | 'jpeg' | 'png'
+export type ImportCompressionFormat = 'webp' | 'jpeg'
 
 export interface CropSuggestion {
   bbox: BBox
@@ -70,6 +72,15 @@ export interface DraftListItem {
   image: ImageItem
   draft: CardDraft
   image_blob?: Blob
+}
+
+export interface WorkbenchSettings {
+  importCompressionEnabled: boolean
+  importCompressionFormat: ImportCompressionFormat
+  importImageQuality: number
+  importMaxDimension: number
+  imageGroupExportFormat: ImageExportFormat
+  imageGroupExportQuality: number
 }
 
 export interface PersistedDraftListItem {

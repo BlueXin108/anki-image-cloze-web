@@ -241,7 +241,7 @@ export const ManualWorkspace = memo(function ManualWorkspace({
           className={cn(
             // 1. 定位与整体布局：固定在屏幕左侧，占满高度，改为顶对齐 (items-start)
             // px-6 控制整体左侧间距，pt-10 控制顶部间距
-            'pointer-events-none fixed inset-y-0 left-0 z-[99999] flex flex-col items-start pt-10 px-10 transition-all duration-300',
+            'pointer-events-none fixed inset-y-0 left-0 z-[99999] flex flex-col items-start  pt-20 px-15 transition-all duration-300',
             // 2. 渐变背景：从左到右 (to-r)，由白变透明。
             // pr-24 控制白色渐变背景的宽度，确保其涵盖最长的文字
             'bg-gradient-to-r from-white/100 via-white/98 pr-50 to-transparent',
@@ -283,7 +283,7 @@ export const ManualWorkspace = memo(function ManualWorkspace({
 
       {!focusMode ? (
         <ScrollArea className="h-full pr-3">
-          <div className="flex flex-col gap-4 p-2">
+          <div className="flex flex-col gap-4 px-2">
             <Card className="border-border/70 bg-background/80 ring-0">
               <CardHeader className={cn('gap-3 transition-[opacity,filter] duration-200 border-b-[0.8px] border-border/70', !touchOptimized && isEditorHovered && 'opacity-60 saturate-75')}>
                 <div className="flex flex-wrap items-start justify-between gap-3">
@@ -382,6 +382,8 @@ export const ManualWorkspace = memo(function ManualWorkspace({
                       <img
                         src={previewSet.frontUrl}
                         alt="Front preview"
+                        loading="lazy"
+                        decoding="async"
                         className={cn('max-h-[420px] cursor-zoom-in w-full object-contain transition-opacity duration-200', previewImageLoaded.front ? 'opacity-100' : 'opacity-0')}
                         onLoad={() => setPreviewImageLoaded((current) => ({ ...current, front: true }))}
                         onError={() => setPreviewImageLoaded((current) => ({ ...current, front: true }))}
@@ -419,6 +421,8 @@ export const ManualWorkspace = memo(function ManualWorkspace({
                       <img
                         src={previewSet.backUrl}
                         alt="Back preview"
+                        loading="lazy"
+                        decoding="async"
                         className={cn('max-h-[420px] cursor-zoom-in w-full object-contain transition-opacity duration-200', previewImageLoaded.back ? 'opacity-100' : 'opacity-0')}
                         onLoad={() => setPreviewImageLoaded((current) => ({ ...current, back: true }))}
                         onError={() => setPreviewImageLoaded((current) => ({ ...current, back: true }))}

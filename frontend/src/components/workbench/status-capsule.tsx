@@ -157,7 +157,7 @@ export const StatusCapsule = memo(function StatusCapsule({
   useEffect(() => {
     const latestErrorTask = tasks.find((task) => {
       const previousState = previousStatesRef.current.get(task.id)
-      return task.state === 'error' && previousState !== 'error'
+      return task.id !== 'anki' && task.state === 'error' && previousState !== 'error'
     })
 
     if (latestErrorTask) {

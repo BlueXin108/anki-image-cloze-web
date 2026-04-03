@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { CheckIcon, ChevronDownIcon, CircleHelpIcon, CopyIcon, DownloadIcon, PlugZapIcon, SparklesIcon } from 'lucide-react'
+import { CheckIcon, ChevronDownIcon, CircleHelpIcon, CopyIcon, DownloadIcon, PlugZapIcon, SparklesIcon, XIcon } from 'lucide-react'
 import { toast } from 'sonner'
 
 import ankiHelpImage1 from '@/assets/ankiHelp-1.webp'
@@ -8,18 +8,10 @@ import ankiHelpImage3 from '@/assets/ankiHelp-3.webp'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
+import { Dialog, DialogClose, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import { Kbd } from '@/components/ui/kbd'
-import { Skeleton } from '@/components/ui/skeleton'
 import { InlineEmphasis } from '@/components/workbench/inline-emphasis'
-import {
-  Popover,
-  PopoverContent,
-  PopoverDescription,
-  PopoverHeader,
-  PopoverTitle,
-  PopoverTrigger,
-} from '@/components/ui/popover'
-import { Separator } from '@/components/ui/separator'
+import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
 
 const ANKI_DOWNLOAD_URL = 'https://apps.ankiweb.net/'
@@ -47,6 +39,8 @@ function HelpImageCard({
       <img
         src={src}
         alt={alt}
+        loading="lazy"
+        decoding="async"
         className={cn(
           'w-full object-contain transition-opacity',
           loaded && !failed ? 'opacity-100' : 'opacity-0',
@@ -67,9 +61,11 @@ function HelpImageCard({
 export function AnkiConnectHelpPopover({
   open,
   onOpenChange,
+  compact = false,
 }: {
   open?: boolean
   onOpenChange?: (open: boolean) => void
+  compact?: boolean
 }) {
   const [currentOrigin, setCurrentOrigin] = useState('')
   const [copied, setCopied] = useState(false)
@@ -124,23 +120,40 @@ export function AnkiConnectHelpPopover({
   }
 
   return (
-    <Popover open={open} onOpenChange={onOpenChange}>
-      <PopoverTrigger asChild>
-        <Button size="lg" variant="outline" className="h-11 rounded-xl px-4">
-          <CircleHelpIcon data-icon="inline-start" />
-          Anki 帮助
-        </Button>
-      </PopoverTrigger>
-      <PopoverContent
-        align="end"
-        side="bottom"
-        sideOffset={10}
-        className="w-[min(94vw,42rem)] gap-0 overflow-hidden rounded-2xl p-0"
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogTrigger asChild>
+        {compact ? (
+          <Button size="sm" variant="ghost" className="h-8 rounded-xl px-2 text-muted-foreground hover:text-foreground">
+            <span className="font-medium text-current">Anki</span>
+            <span className="ml-1 inline-flex items-center justify-center text-current">
+              <CircleHelpIcon className="size-4" />
+            </span>
+          </Button>
+        ) : (
+          <Button size="sm" variant="ghost" className="h-9 rounded-xl px-2.5 text-muted-foreground hover:text-foreground">
+            <span className="font-medium text-current">Anki</span>
+            <CircleHelpIcon className="ml-1 size-4" />
+          </Button>
+        )}
+      </DialogTrigger>
+      <DialogContent
+        showCloseButton={false}
+        className="w-[min(94vw,44rem)] max-w-[calc(100%-1rem)] gap-0 overflow-hidden rounded-2xl border-border/70 bg-background/95 p-0 shadow-2xl sm:max-w-[44rem]"
       >
-        <div className="flex max-h-[82vh] flex-col overflow-auto">
-          <PopoverHeader className="gap-1 px-4 py-4">
-            <PopoverTitle>Anki 与 AnkiConnect 配置说明</PopoverTitle>
-            <PopoverDescription>
+        <DialogClose asChild>
+          <button
+            type="button"
+            className="absolute right-4 top-4 inline-flex items-center justify-center text-muted-foreground transition-colors hover:text-foreground"
+            aria-label="关闭帮助"
+          >
+            <XIcon className="size-4" />
+          </button>
+        </DialogClose>
+
+        <div className="flex max-h-[84vh] flex-col overflow-auto">
+          <DialogHeader className="gap-1 border-b border-border/70 px-4 py-4 pr-10">
+            <DialogTitle className="text-base">Anki 与 AnkiConnect 配置说明</DialogTitle>
+            <DialogDescription>
               本站本身已经支持直接导出
               <span className="mx-1 inline-flex">
                 <InlineEmphasis hint="下载完成后，桌面端可以直接拖进 Anki；移动端则可以交给 AnkiDroid 打开。">
@@ -152,10 +165,8 @@ export function AnkiConnectHelpPopover({
                 <InlineEmphasis>AnkiConnect</InlineEmphasis>
               </span>
               直接读取本机牌组、并一键写入 Anki，再按下面这套流程配置就行。不需要直连时，这些步骤都可以先忽略。
-            </PopoverDescription>
-          </PopoverHeader>
-
-          <Separator />
+            </DialogDescription>
+          </DialogHeader>
 
           <div className="flex flex-col gap-3 px-4 py-4">
             <Collapsible open={ankiDownloadOpen} onOpenChange={setAnkiDownloadOpen}>
@@ -328,7 +339,7 @@ export function AnkiConnectHelpPopover({
             </div>
           </div>
         </div>
-      </PopoverContent>
-    </Popover>
+      </DialogContent>
+    </Dialog>
   )
 }

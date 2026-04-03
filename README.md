@@ -1,10 +1,14 @@
 # Anki Image Cloze Web Workbench
 
-这是一个面向 Vercel 和静态部署场景的 Anki 图像挖空网页工作台。当前主目标是把“导入图片 -> 手动裁剪 -> 画遮罩 -> 按组预览 -> 统一导出”这条链路跑顺，并同时兼顾两条出口：
+这是一个面向 Vercel 和静态部署场景的 Anki 图像挖空网页工作台。当前主目标是把“导入图片 -> 手动裁剪 -> 画遮罩 -> 按组预览 -> 统一导出”这条链路跑顺，并同时兼顾三条出口：
 
 - `APKG 卡包`
   - 默认可用
   - 不依赖本机 AnkiConnect
+- `纯图像组`
+  - 默认可用
+  - 可导出前后图压缩包
+  - 支持 `WebP / JPG / PNG`
 - `AnkiConnect 直连`
   - 主要面向桌面浏览器
   - 可直接读取本机牌组并写入本机 Anki
@@ -14,8 +18,9 @@
 - `手动模式`
   - 已完成
   - 支持多图上传、文件夹导入、浏览器本地保存、即时预览、全屏导出流
+  - 导入时会先做压缩和最大分辨率校正，避免超高分辨率下挖空描边过细
   - 桌面端支持 AnkiConnect 直连
-  - 全端支持 APKG 导出
+  - 全端支持 APKG 导出与纯图像组导出
 - `流水线模式`
   - 当前保留 UI 占位
   - 后续再逐步接回 OCR、自动归类或自动遮罩能力
@@ -30,6 +35,7 @@
 4. [踩坑与纠偏记录](docs/pitfalls-and-corrections.md)
 5. [Agent 经验与环境约束](docs/agent-experience.md)
 6. [Git 与工作树说明](docs/git-and-worktree-guide.md)
+7. [Vercel Analytics 接入说明](docs/vercel-analytics.md)
 
 另外，根目录的 `.agent` 是未来 agent 的控制入口和文档索引。
 
@@ -39,6 +45,7 @@
   - Vite + React + TypeScript
   - 纯前端网页工作台
   - 图像编辑器、浏览器本地保存、AnkiConnect 直连
+  - 已接入 Vercel Analytics 基础统计
 - `backend/`
   - 历史本地版原型后端
   - 当前这条网页线不依赖它运行
@@ -82,6 +89,10 @@ npm run build
 ## 当前交互重点
 
 - 顶部会低调提示当前是 `电脑端` 还是 `手机端`
+- 顶部 `设置` 可统一控制：
+  - 导入自动压缩质量
+  - 导入最大分辨率
+  - 纯图像组导出的图片格式与压缩质量
 - 右上角 `Anki 帮助` 会解释：
   - 什么时候只用 APKG 就够了
   - 什么时候值得继续配置 AnkiConnect
@@ -90,8 +101,23 @@ npm run build
 - 右下角固定保留导出入口
   - 进入后会先逐张确认牌组与标签，再做最终导出
 
+## 当前导出格式说明
+
+- `AnkiConnect 直连`
+  - 最终送入本机 Anki 的图片固定为 `WebP`
+- `APKG`
+  - 打包进卡包的图片固定为 `WebP`
+- `纯图像组`
+  - 可在顶部 `设置` 中改为 `WebP / JPG / PNG`
+
 ## 部署建议
 
 - 当前前端适合直接部署到 Vercel
 - 部署根目录指向 `frontend/`
 - 这条网页线不依赖自建服务或 Vercel Functions
+
+## 监测说明
+
+- 当前已经接入 Vercel Analytics 的基础页面统计
+- 详细说明见：
+  - [Vercel Analytics 接入说明](docs/vercel-analytics.md)

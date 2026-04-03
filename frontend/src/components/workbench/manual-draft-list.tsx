@@ -1,9 +1,10 @@
-import { memo, useEffect, useState } from 'react'
+import { memo, useEffect, useState, type KeyboardEvent } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Skeleton } from '@/components/ui/skeleton'
+import { XIcon } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { DraftListItem } from '@/types'
 
@@ -11,6 +12,7 @@ interface ManualDraftListProps {
   items: DraftListItem[]
   selectedDraftId: string | null
   onSelect: (draftId: string) => void
+  onRemoveItem?: (draftId: string) => void
   mobileLayout?: boolean
 }
 
@@ -18,13 +20,29 @@ function imageName(sourcePath: string): string {
   return sourcePath.split(/[\\/]/).pop() || sourcePath
 }
 
-export const ManualDraftList = memo(function ManualDraftList({ items, selectedDraftId, onSelect, mobileLayout = false }: ManualDraftListProps) {
+function handleSelectKeyDown(event: KeyboardEvent<HTMLDivElement>, onSelect: () => void) {
+  if (event.key === 'Enter' || event.key === ' ') {
+    event.preventDefault()
+    onSelect()
+  }
+}
+
+export const ManualDraftList = memo(function ManualDraftList({ items, selectedDraftId, onSelect, onRemoveItem, mobileLayout = false }: ManualDraftListProps) {
   const activeItems = items.filter((item) => !item.image.ignored)
   const [loadedImageIds, setLoadedImageIds] = useState<Record<string, boolean>>({})
+  const imageStateKey = activeItems.map((item) => `${item.image.id}:${item.image.source_url ?? ''}`).join('|')
 
   useEffect(() => {
-    setLoadedImageIds({})
-  }, [items])
+    setLoadedImageIds((current) => {
+      const next: Record<string, boolean> = {}
+      activeItems.forEach((item) => {
+        if (current[item.image.id]) {
+          next[item.image.id] = true
+        }
+      })
+      return next
+    })
+  }, [activeItems, imageStateKey])
 
   if (mobileLayout) {
     return (
@@ -37,7 +55,7 @@ export const ManualDraftList = memo(function ManualDraftList({ items, selectedDr
             </Badge>
           </CardTitle>
           <CardDescription className="text-xs">
-            已切换为紧凑列表，文件名和牌组将换行展开，方便快速滑动浏览。
+            点击一张图，就会在下方切到对应内容；缩略图在左，名称和牌组信息在右。
           </CardDescription>
         </CardHeader>
 
@@ -47,29 +65,30 @@ export const ManualDraftList = memo(function ManualDraftList({ items, selectedDr
             <div className="flex flex-col gap-2.5">
               {activeItems.map((item) => {
                 const isSelected = item.draft.id === selectedDraftId
-                const isExported = item.draft.review_status === 'imported' || item.draft.review_status === 'packaged'
                 const maskCount = item.draft.masks.length
 
                 return (
-                  <Button
+                  <div
                     key={item.draft.id}
-                    variant="ghost"
+                    role="button"
+                    tabIndex={0}
                     className={cn(
-                      // 1. 改为横向排布 (flex-row)，大幅度压缩单项高度
-                      'h-auto w-full flex-row items-start justify-start rounded-2xl border px-3 py-3 text-left transition-all',
+                      'group relative flex h-auto w-full flex-row items-start justify-start rounded-2xl border px-3 py-3 text-left transition-all',
                       isSelected
                         ? 'border-amber-300/90 bg-amber-50/80 ring-1 ring-amber-300/40'
                         : 'border-border/60 bg-background/80 hover:border-border hover:bg-muted/30',
                     )}
                     onClick={() => onSelect(item.draft.id)}
+                    onKeyDown={(event) => handleSelectKeyDown(event, () => onSelect(item.draft.id))}
                   >
-                    {/* 2. 图片尺寸从 aspect-[4/3] w-full 缩小为固定的 size-20 (80x80px) */}
                     <div className="relative flex size-20 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-border/60 bg-muted/30">
                       {!loadedImageIds[item.image.id] ? <Skeleton className="absolute inset-0 rounded-none" /> : null}
                       {item.image.source_url ? (
                         <img
                           src={item.image.source_url}
                           alt={imageName(item.image.source_path)}
+                          loading="lazy"
+                          decoding="async"
                           className={cn('h-full w-full object-cover transition-opacity duration-200', loadedImageIds[item.image.id] ? 'opacity-100' : 'opacity-0')}
                           onLoad={() => setLoadedImageIds((current) => ({ ...current, [item.image.id]: true }))}
                           onError={() => setLoadedImageIds((current) => ({ ...current, [item.image.id]: true }))}
@@ -77,38 +96,34 @@ export const ManualDraftList = memo(function ManualDraftList({ items, selectedDr
                       ) : (
                         <div className="text-[10px] text-muted-foreground">无预览</div>
                       )}
-                      
-                      {/* 导出状态圆点 */}
-                      <div
-                        className={cn(
-                          'absolute right-1 top-1 size-2.5 rounded-full border-2 border-background shadow-sm',
-                          isExported ? 'bg-emerald-400' : 'bg-amber-400',
-                        )}
-                      />
+                      <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-black/40 text-white pointer-events-none">
+                        <span className="text-xl font-bold leading-none drop-shadow-md">{maskCount}</span>
+                        <span className="text-[9px] font-semibold leading-tight opacity-90 drop-shadow-md text-slate-100">mask</span>
+                      </div>
                     </div>
 
-                    {/* 3. 右侧信息区：利用 min-w-0 防止文字溢出撑破 flex，使用 line-clamp 保证能多行展示 */}
                     <div className="ml-3 flex min-w-0 flex-1 flex-col justify-center space-y-1.5 py-0.5">
-                      
-                      {/* 文件名：最多允许两行 */}
                       <div className="line-clamp-2 text-sm font-medium leading-tight text-foreground/90">
                         {imageName(item.image.source_path)}
                       </div>
-                      
-                      {/* 路径：单行截断 */}
-                      <div className="truncate text-[11px] leading-4 text-muted-foreground/80">
-                        {item.image.folder_path || '直接上传图片'}
+                      <div className="mt-0.5 max-w-full text-xs font-medium text-muted-foreground/80">
+                        <span className="inline-block w-full truncate">{item.draft.deck?.trim() || '未分牌组'}</span>
                       </div>
-                      
-                      {/* 数据信息与牌组：取消了庞大的 Deck 灰底框，改为紧凑的文字排版 */}
-                      <div className="flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground">
-                        <span className="font-medium text-amber-600/90 dark:text-amber-500/90">{maskCount} 遮罩</span>
-                        <span className="text-border/80">|</span>
-                        <span className="line-clamp-1 flex-1 text-foreground/70">{item.draft.deck?.trim() || '未分牌组'}</span>
-                      </div>
-                      
                     </div>
-                  </Button>
+                    {onRemoveItem && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="absolute right-1 top-1 h-6 w-6 rounded-md text-muted-foreground/30 hover:bg-muted hover:text-muted-foreground active:bg-muted/80"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          onRemoveItem(item.draft.id)
+                        }}
+                      >
+                        <XIcon className="size-3.5" />
+                      </Button>
+                    )}
+                  </div>
                 )
               })}
             </div>
@@ -119,17 +134,16 @@ export const ManualDraftList = memo(function ManualDraftList({ items, selectedDr
   }
 
   return (
-    <Card className="flex h-full min-h-0 flex-col border-0! ring-0 outline-0 border-none! bg-transparent shadow-none">
+      <Card className="flex h-full min-h-0 flex-col border-0! ring-0 outline-0 border-none! bg-transparent shadow-none">
       <CardHeader className="gap-2 border-b border-border/70 px-5 py-2">
         <CardTitle className="flex items-center justify-between text-base">
-          <span>手动项目</span>
+          <span>图片选择</span>
           <Badge variant="secondary" className="text-[10px] px-2 py-0 bg-transparent">
             {activeItems.length} 张
           </Badge>
         </CardTitle>
-        {/* 描述文字在极窄视图下其实也很占空间，如果非必要可以加上 line-clamp-2 限制行数 */}
         <CardDescription className="text-xs line-clamp-2">
-          这里按图片聚合显示，内部遮挡会在工作区拆成卡片。
+          这里会列出当前项目里的所有图片；点一张，就会在右侧切到对应的编辑和预览内容。
         </CardDescription>
       </CardHeader>
       
@@ -139,31 +153,30 @@ export const ManualDraftList = memo(function ManualDraftList({ items, selectedDr
             {activeItems.map((item) => {
               const isSelected = item.draft.id === selectedDraftId
               const maskCount = item.draft.masks.length
-              const isExported = item.draft.review_status === 'imported' || item.draft.review_status === 'packaged'
 
               return (
-                <Button
+                <div
                   key={item.draft.id}
-                  variant="ghost"
+                  role="button"
+                  tabIndex={0}
                   className={cn(
-                    // 1. 容器调整：减小 padding，让圆角更精致
-                    'h-auto w-full justify-start rounded-xl border px-2.5 py-2.5 text-left transition-all',
+                    'group relative h-auto w-full justify-start rounded-xl border px-2.5 py-2.5 text-left transition-all',
                     isSelected 
                       ? 'border-amber-300/90 bg-amber-50/70 ring-1 ring-amber-300/40' 
                       : 'border-transparent bg-background/50 hover:border-border/60 hover:bg-muted/40',
                   )}
                   onClick={() => onSelect(item.draft.id)}
+                  onKeyDown={(event) => handleSelectKeyDown(event, () => onSelect(item.draft.id))}
                 >
-                  {/* 2. 内部布局：减小 gap */}
                   <div className="flex w-full min-w-0 items-center gap-3">
-                    
-                    {/* 3. 缩略图优化：从 size-24(96px) 缩小到 size-14(56px) 或 size-16(64px) */}
                     <div className="relative flex size-14 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-border/60 bg-muted/30 shadow-sm">
                       {!loadedImageIds[item.image.id] ? <Skeleton className="absolute inset-0 rounded-none" /> : null}
                       {item.image.source_url ? (
                         <img
                           src={item.image.source_url}
                           alt={imageName(item.image.source_path)}
+                          loading="lazy"
+                          decoding="async"
                           className={cn('h-full w-full object-cover transition-opacity duration-200', loadedImageIds[item.image.id] ? 'opacity-100' : 'opacity-0')}
                           onLoad={() => setLoadedImageIds((current) => ({ ...current, [item.image.id]: true }))}
                           onError={() => setLoadedImageIds((current) => ({ ...current, [item.image.id]: true }))}
@@ -171,38 +184,35 @@ export const ManualDraftList = memo(function ManualDraftList({ items, selectedDr
                       ) : (
                         <div className="text-[10px] text-muted-foreground">无预览</div>
                       )}
-                      
-                      {/* 💡 神来之笔：用绝对定位的指示圆点替代庞大的“已导出/待导出” Badge */}
-                      <div 
-                        className={cn(
-                          "absolute right-1 top-1 size-2.5 rounded-full border-2 border-background shadow-sm",
-                          isExported ? "bg-emerald-400" : "bg-amber-400"
-                        )}
-                        title={isExported ? '已导出' : '待导出'}
-                      />
+                      <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-black/40 text-white pointer-events-none">
+                        <span className="text-lg font-bold leading-none drop-shadow-md">{maskCount}</span>
+                        <span className="text-[9px] font-semibold leading-tight opacity-90 drop-shadow-md text-slate-100">mask</span>
+                      </div>
                     </div>
 
-                    {/* 4. 信息区优化：严格控制 min-w-0 防止 flex 子项撑破父容器 */}
                     <div className="flex min-w-0 flex-1 flex-col justify-center space-y-1">
-                      {/* 第一行：图片名称 */}
                       <div className="line-clamp-2 text-sm font-medium leading-tight text-foreground/90">
                         {imageName(item.image.source_path)}
                       </div>
-                      
-                      {/* 第二行：路径 */}
-                      <div className="line-clamp-2 text-[11px] leading-4 text-muted-foreground/80">
-                        {item.image.folder_path || '直接上传'}
-                      </div>
-                      
-                      {/* 第三行：数据统计（用 · 分隔符替代 Badge 堆叠） */}
-                      <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
-                        <span className="font-medium text-foreground/70">{maskCount} 遮罩</span>
-                        <span className="text-border/80">|</span>
-                        <span className="line-clamp-2">{item.draft.deck?.trim() || '未分牌组'}</span>
+                      <div className="mt-1 text-[11px] leading-4 text-muted-foreground/80 line-clamp-2">
+                        {item.draft.deck?.trim() || '未分牌组'}
                       </div>
                     </div>
+                    {onRemoveItem && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="absolute left-2 top-2 hidden h-5 w-5 shrink-0 rounded text-muted-foreground/30 hover:bg-muted/80 hover:text-muted-foreground group-hover:inline-flex"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          onRemoveItem(item.draft.id)
+                        }}
+                      >
+                        <XIcon className="size-3" />
+                      </Button>
+                    )}
                   </div>
-                </Button>
+                </div>
               )
             })}
           </div>

@@ -1,10 +1,13 @@
-import React, {memo} from "react";
+import React, {memo, useState} from "react";
 import {
 	BookOpenTextIcon,
 	CheckIcon,
 	ChevronDownIcon,
+	ChevronUpIcon,
 	DownloadIcon,
+	EllipsisIcon,
 	FolderUpIcon,
+	MessageCircleQuestionIcon,
 	MonitorIcon,
 	RefreshCcwIcon,
 	RotateCcwIcon,
@@ -34,6 +37,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import {Spinner} from "@/components/ui/spinner";
 import {Tabs, TabsList, TabsTrigger} from "@/components/ui/tabs";
+import {Tooltip, TooltipContent, TooltipTrigger} from "@/components/ui/tooltip";
 import {InlineEmphasis} from "@/components/workbench/inline-emphasis";
 import {AnkiConnectHelpPopover} from "@/components/workbench/anki-connect-help-popover";
 import {cn} from "@/lib/utils";
@@ -72,6 +76,8 @@ interface WorkbenchHeaderProps {
 	onAnkiHelpOpenChange?: (open: boolean) => void;
 	onOpenAnkiHelp?: () => void;
 	touchOptimized?: boolean;
+	settingsAction?: React.ReactNode;
+	showModeTabs?: boolean;
 }
 
 // --- 图标组件 ---
@@ -197,7 +203,10 @@ export const WorkbenchHeader = memo(function WorkbenchHeader({
 	onAnkiHelpOpenChange,
 	onOpenAnkiHelp,
 	touchOptimized = false,
+	settingsAction,
+	showModeTabs = true,
 }: WorkbenchHeaderProps) {
+	const [guideOpen, setGuideOpen] = useState(false);
 	const guideOrder: ManualGuideStep[] = showAnkiActions
 		? ["import", "mask", "anki", "export"]
 		: ["import", "mask", "export"];
@@ -208,6 +217,9 @@ export const WorkbenchHeader = memo(function WorkbenchHeader({
 	const apkgHint = mobileOptimized
 		? "会生成 APKG 卡包。下载后用 AnkiDroid 打开即可继续导入。"
 		: "会生成 APKG 卡包。下载完成后直接拖进桌面版 Anki 即可手动导入。";
+	const imageGroupHint = mobileOptimized
+		? "会把每张卡的前后图打包成纯图像组，更适合最大兼容场景。"
+		: "会把每张卡的前后图打包成纯图像组压缩包，适合最大兼容场景。";
 
 	const headerDescription = mobileOptimized ? (
 		<>
@@ -215,6 +227,12 @@ export const WorkbenchHeader = memo(function WorkbenchHeader({
 			<span className="mx-1 inline-flex">
 				<InlineEmphasis hint={apkgHint} touchOptimized={touchOptimized}>
 					APKG
+				</InlineEmphasis>
+			</span>
+			或
+			<span className="mx-1 inline-flex">
+				<InlineEmphasis hint={imageGroupHint} touchOptimized={touchOptimized}>
+					图像组
 				</InlineEmphasis>
 			</span>
 			。
@@ -231,225 +249,219 @@ export const WorkbenchHeader = memo(function WorkbenchHeader({
 					APKG
 				</InlineEmphasis>
 			</span>
+			/
+			<span className="mx-1 inline-flex">
+				<InlineEmphasis hint={imageGroupHint} touchOptimized={touchOptimized}>
+					图像组
+				</InlineEmphasis>
+			</span>
 			。
 		</>
 	);
 	const pipelineDescription = mobileOptimized
 		? "这里先保留自动化入口，后面再逐步接回批量处理。"
 		: "这里先留入口位，等手动流程稳定后，再把自动识别、建议遮挡和批量审核逐步接回。";
+	const showLowerSection = workspaceMode === "pipeline" || guideOpen;
 
 	return (
 		<Card className="overflow-hidden border border-border/70 bg-background/92 shadow-sm">
 			<CardContent className="p-0">
-				<div className="flex flex-col gap-4 border-b border-border/70 bg-muted/10 p-4 sm:flex-row sm:items-center sm:justify-between sm:gap-6 md:px-5 md:py-5">
+				<div
+					className={cn(
+						"relative flex flex-col gap-3 bg-muted/10 px-4 py-3 sm:flex-row sm:items-start sm:justify-between sm:gap-5",
+						showLowerSection && "border-b border-border/70",
+					)}>
 					<div className="flex items-start gap-3">
 						<MainIcon />
 						<div className="min-w-0">
-							<CardTitle className="text-lg tracking-tight md:text-xl">
-								Anki-图像遮罩工具
-							</CardTitle>
+							<div className="flex flex-wrap items-center gap-2">
+								<CardTitle className="text-lg tracking-tight md:text-lg">
+									Anki-图像遮罩工具
+								</CardTitle>
+								<Tooltip>
+									<TooltipTrigger asChild>
+										<button type="button" className="cursor-help text-muted-foreground transition hover:text-foreground">
+											{mobileOptimized ? <SmartphoneIcon className="size-3.5" /> : <MonitorIcon className="size-3.5" />}
+										</button>
+									</TooltipTrigger>
+									<TooltipContent side="right" sideOffset={8}>
+										{mobileOptimized ? '当前是手机端，建议改到电脑端使用 AnkiConnect 获得更完整体验。' : '当前是电脑端，支持直接连接本机 Anki 读取牌组。'}
+									</TooltipContent>
+								</Tooltip>
+								<div className="h-3 w-px bg-border/70" />
+								{showAnkiActions ? (
+									<AnkiConnectHelpPopover
+										open={ankiHelpOpen}
+										onOpenChange={onAnkiHelpOpenChange}
+										compact
+									/>
+								) : null}
+								{settingsAction}
+								<DropdownMenu>
+									<DropdownMenuTrigger asChild>
+										<Button
+											size="icon-sm"
+											variant="ghost"
+											className="trs-all-400 rounded-xl text-muted-foreground hover:-translate-y-0.5 hover:text-foreground active:scale-[0.97]">
+											<EllipsisIcon />
+											<span className="sr-only">更多</span>
+										</Button>
+									</DropdownMenuTrigger>
+									<DropdownMenuContent align="end" className="w-56">
+										<DropdownMenuLabel>更多操作</DropdownMenuLabel>
+										<DropdownMenuGroup>
+											<DropdownMenuItem onSelect={onRestoreProject}>
+												{loadingKey === "restore-project" ? (
+													<Spinner />
+												) : (
+													<RotateCcwIcon />
+												)}
+												恢复上次项目
+											</DropdownMenuItem>
+											{showAnkiActions ? (
+												<DropdownMenuItem onSelect={onRefreshAnki}>
+													{loadingKey === "refresh-anki" ? (
+														<Spinner />
+													) : (
+														<RefreshCcwIcon />
+													)}
+													获取牌组
+												</DropdownMenuItem>
+											) : null}
+										</DropdownMenuGroup>
+										{mobileOptimized &&
+										(onExportDeckPoolBackup || onImportDeckPoolBackup) ? (
+											<>
+												<DropdownMenuSeparator />
+												<DropdownMenuGroup>
+													{onExportDeckPoolBackup ? (
+														<DropdownMenuItem onSelect={onExportDeckPoolBackup}>
+															{loadingKey === "export-deck-pool" ? (
+																<Spinner />
+															) : (
+																<DownloadIcon />
+															)}
+															导出牌组池备份
+														</DropdownMenuItem>
+													) : null}
+													{onImportDeckPoolBackup ? (
+														<DropdownMenuItem onSelect={onImportDeckPoolBackup}>
+															{loadingKey === "import-deck-pool" ? (
+																<Spinner />
+															) : (
+																<UploadIcon />
+															)}
+															导入牌组池备份
+														</DropdownMenuItem>
+													) : null}
+												</DropdownMenuGroup>
+											</>
+										) : null}
+										<DropdownMenuSeparator />
+										<DropdownMenuItem
+											variant="destructive"
+											onSelect={onClearProject}>
+											{loadingKey === "clear-project" ? (
+												<Spinner />
+											) : (
+												<Trash2Icon />
+											)}
+											清空本地项目
+										</DropdownMenuItem>
+									</DropdownMenuContent>
+								</DropdownMenu>
+							</div>
 							<CardDescription
 								className={cn(
-									"mt-1",
-									mobileOptimized ? "text-xs leading-5" : undefined,
+									"mt-0.5 text-xs",
+									mobileOptimized ? "leading-5" : undefined,
 								)}>
 								{headerDescription}
 							</CardDescription>
-							<div className="mt-2 flex flex-wrap items-center gap-2">
-								<div className="flex items-center gap-1.5">
-									{mobileOptimized ? (
-										<SmartphoneIcon className="size-3 flex-shrink-0" />
-									) : (
-										<MonitorIcon className="size-3 flex-shrink-0" />
-									)}
- 
-									{mobileOptimized ? (
-										<span className="text-xs leading-none text-muted-foreground">
-											建议改到电脑端，通过
-											<span className="mx-1 inline-flex">
-												<InlineEmphasis onClick={onOpenAnkiHelp}>
-													AnkiConnect
-												</InlineEmphasis>
-											</span>
-											获得更完整的体验。
-										</span>
-									) : (
-										<span className="text-xs leading-none text-muted-foreground">
-											支持直接连接本机 Anki 读取牌组
-										</span>
-									)}
-								</div>
-							</div>
 						</div>
 					</div>
 
-					<div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-						<Tabs
-							value={workspaceMode}
-							onValueChange={(value) =>
-								value && onWorkspaceModeChange(value as WorkspaceMode)
-							}
-							className="w-full sm:w-auto">
-							<TabsList className="h-auto w-full gap-1.5 rounded-2xl bg-muted/60 p-1">
-								<TabsTrigger
-									value="manual"
-									className="h-auto min-w-0 flex-1 justify-center gap-1.5 rounded-xl px-2.5 py-2 text-sm text-center">
-									<BookOpenTextIcon className="size-4" />
-									手动处理
-								</TabsTrigger>
-								<TabsTrigger
-									value="pipeline"
-									className="h-auto min-w-0 flex-1 justify-center gap-1.5 rounded-xl px-2.5 py-2 text-sm text-center">
-									<WorkflowIcon className="size-4" />
-									自动化流
-								</TabsTrigger>
-							</TabsList>
-						</Tabs>
+					<div className="flex min-w-0 flex-1 flex-col gap-2.5 sm:max-w-[34rem]">
+						{showModeTabs ? (
+							<Tabs
+								value={workspaceMode}
+								onValueChange={(value) =>
+									value && onWorkspaceModeChange(value as WorkspaceMode)
+								}
+								className="w-full sm:w-auto">
+								<TabsList className="h-auto w-full gap-1.5 rounded-2xl bg-muted/60 p-1">
+									<TabsTrigger
+										value="manual"
+										className="h-auto min-w-0 flex-1 justify-center gap-1.5 rounded-xl px-2.5 py-2 text-sm text-center">
+										<BookOpenTextIcon className="size-4" />
+										手动处理
+									</TabsTrigger>
+									<TabsTrigger
+										value="pipeline"
+										className="h-auto min-w-0 flex-1 justify-center gap-1.5 rounded-xl px-2.5 py-2 text-sm text-center">
+										<WorkflowIcon className="size-4" />
+										自动化流
+									</TabsTrigger>
+								</TabsList>
+							</Tabs>
+						) : null}
 
-						<div className="flex flex-wrap gap-2">
+						<div className="grid grid-cols-2 gap-2">
 							<Button
-								size="lg"
-								className="h-11 flex-1 rounded-xl px-4 sm:flex-none"
+								size="default"
+								className="trs-all-400 h-10 min-w-0 rounded-xl px-3 sm:px-4 hover:-translate-y-0.5 active:scale-[0.98]"
 								onClick={onUploadImages}>
-								<UploadIcon data-icon="inline-start" />
+								<UploadIcon className="size-4" data-icon="inline-start" />
 								{mobileOptimized ? "系统相册" : "上传图片"}
 							</Button>
 							<Button
-								size="lg"
+								size="default"
 								variant="secondary"
-								className="h-11 flex-1 rounded-xl px-4 sm:flex-none"
+								className="trs-all-400 h-10 min-w-0 rounded-xl px-3 sm:px-4 hover:-translate-y-0.5 active:scale-[0.98]"
 								onClick={mobileOptimized ? onImportFiles : onImportFolder}>
-								<FolderUpIcon data-icon="inline-start" />
+								<FolderUpIcon className="size-4" data-icon="inline-start" />
 								{mobileOptimized ? "文件管理器" : "导入文件夹"}
 							</Button>
-
-							<DropdownMenu>
-								<DropdownMenuTrigger asChild>
-									<Button
-										size="lg"
-										variant="outline"
-										className="h-11 rounded-xl px-4">
-										更多
-										<ChevronDownIcon data-icon="inline-end" />
-									</Button>
-								</DropdownMenuTrigger>
-								<DropdownMenuContent align="end" className="w-56">
-									<DropdownMenuLabel>更多操作</DropdownMenuLabel>
-									<DropdownMenuGroup>
-										<DropdownMenuItem onSelect={onRestoreProject}>
-											{loadingKey === "restore-project" ? (
-												<Spinner />
-											) : (
-												<RotateCcwIcon />
-											)}
-											恢复上次项目
-										</DropdownMenuItem>
-										{showAnkiActions ? (
-											<DropdownMenuItem onSelect={onRefreshAnki}>
-												{loadingKey === "refresh-anki" ? (
-													<Spinner />
-												) : (
-													<RefreshCcwIcon />
-												)}
-												获取牌组
-											</DropdownMenuItem>
-										) : null}
-									</DropdownMenuGroup>
-									{mobileOptimized &&
-									(onExportDeckPoolBackup || onImportDeckPoolBackup) ? (
-										<>
-											<DropdownMenuSeparator />
-											<DropdownMenuGroup>
-												{onExportDeckPoolBackup ? (
-													<DropdownMenuItem onSelect={onExportDeckPoolBackup}>
-														{loadingKey === "export-deck-pool" ? (
-															<Spinner />
-														) : (
-															<DownloadIcon />
-														)}
-														导出牌组池备份
-													</DropdownMenuItem>
-												) : null}
-												{onImportDeckPoolBackup ? (
-													<DropdownMenuItem onSelect={onImportDeckPoolBackup}>
-														{loadingKey === "import-deck-pool" ? (
-															<Spinner />
-														) : (
-															<UploadIcon />
-														)}
-														导入牌组池备份
-													</DropdownMenuItem>
-												) : null}
-											</DropdownMenuGroup>
-										</>
-									) : null}
-									<DropdownMenuSeparator />
-									<DropdownMenuItem
-										variant="destructive"
-										onSelect={onClearProject}>
-										{loadingKey === "clear-project" ? (
-											<Spinner />
-										) : (
-											<Trash2Icon />
-										)}
-										清空本地项目
-									</DropdownMenuItem>
-								</DropdownMenuContent>
-							</DropdownMenu>
-
-							{showAnkiActions ? (
-								<AnkiConnectHelpPopover
-									open={ankiHelpOpen}
-									onOpenChange={onAnkiHelpOpenChange}
-								/>
-							) : null}
 						</div>
 					</div>
+
+					{workspaceMode === "manual" && !guideOpen ? (
+						<button
+							type="button"
+							aria-label="展开当前步骤"
+							onClick={() => setGuideOpen(true)}
+							className="trs-all-400 absolute left-1/2 -bottom-2 -translate-x-1/2 rounded-full bg-background/92 px-2 text-muted-foreground/70 hover:scale-105 hover:text-foreground active:scale-[0.94]"
+						>
+							<ChevronDownIcon className="size-3.5" />
+						</button>
+					) : null}
 				</div>
 
-				<div className="grid gap-4 p-4 md:px-5 md:py-5">
-					{workspaceMode === "manual" ? (
-						<>
-							{/* <div className="flex flex-wrap gap-2">
-                {summaryItems.map((item) => (
-                  <SummaryPill key={item.label} label={item.label} value={item.value} icon={item.icon} />
-                ))}
-              </div> */}
-
-							<div className="space-y-3 rounded-2xl border border-border/70 bg-muted/20 px-4 py-4 md:space-y-4">
-								<div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-									{/* 使用全新的步骤条组件 */}
-									<GuideStepper
-										currentGuideIndex={currentGuideIndex}
-										steps={guideSteps}
-									/>
-
-									{/* {manualGuide.action && manualGuide.actionLabel && (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="rounded-xl sm:shrink-0"
-                      onClick={() => onGuideAction(manualGuide.action!)}
-                    >
-                      {manualGuide.action === 'refresh-anki' && loadingKey === 'refresh-anki' ? (
-                        <Spinner data-icon="inline-start" />
-                      ) : manualGuide.action === 'upload' ? (
-                        <UploadIcon data-icon="inline-start" />
-                      ) : (
-                        <DownloadIcon data-icon="inline-start" />
-                      )}
-                      {manualGuide.actionLabel}
-                    </Button>
-                  )} */}
-								</div>
-
+				{workspaceMode === "manual" ? (
+					guideOpen ? (
+						<div className="px-4 pb-4 md:px-4 md:pb-3">
+							<div className="relative mt-3 flex flex-col gap-3 rounded-2xl border border-border/70 bg-muted/20 px-4 py-3">
+								<GuideStepper
+									currentGuideIndex={currentGuideIndex}
+									steps={guideSteps}
+								/>
 								<div className="flex items-center gap-2 text-xs text-muted-foreground">
-									<div className="size-1.5 rounded-full bg-foreground/60 text-xs" />
+									<MessageCircleQuestionIcon className="size-3.5 shrink-0" />
 									<span>{manualGuide.hint}</span>
 								</div>
+								<button
+									type="button"
+									aria-label="折叠当前步骤"
+									onClick={() => setGuideOpen(false)}
+									className="trs-all-400 absolute left-1/2 -bottom-2 -translate-x-1/2 rounded-full bg-background/92 px-2 text-muted-foreground/70 hover:scale-105 hover:text-foreground active:scale-[0.94]"
+								>
+									<ChevronUpIcon className="size-3.5" />
+								</button>
 							</div>
-						</>
-					) : (
+						</div>
+					) : null
+				) : (
+					<div className="grid gap-3 p-4 md:px-4 md:py-3">
 						<div
 							className={cn(
 								"flex flex-wrap items-center gap-2 rounded-2xl border border-border/70 bg-muted/20 px-3 py-3 text-muted-foreground",
@@ -463,8 +475,8 @@ export const WorkbenchHeader = memo(function WorkbenchHeader({
 							</Badge>
 							<span>{pipelineDescription}</span>
 						</div>
-					)}
-				</div>
+					</div>
+				)}
 			</CardContent>
 		</Card>
 	);

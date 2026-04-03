@@ -41,6 +41,7 @@ interface DeckPickerProps {
   hideSaveAction?: boolean
   embedded?: boolean
   mode?: 'anki' | 'local'
+  autoSaveOnPick?: boolean
 }
 
 interface DeckTreeNode {
@@ -261,11 +262,13 @@ function DeckNameInput({
   onValueChange,
   suggestions,
   placeholder,
+  onSuggestionPick,
 }: {
   value: string
   onValueChange: (value: string) => void
   suggestions: string[]
   placeholder: string
+  onSuggestionPick?: (value: string) => void
 }) {
   const [focused, setFocused] = useState(false)
 
@@ -281,7 +284,7 @@ function DeckNameInput({
         }}
         placeholder={placeholder}
       />
-      {focused ? <SuggestionList decks={suggestions} onPick={onValueChange} /> : null}
+      {focused ? <SuggestionList decks={suggestions} onPick={onSuggestionPick ?? onValueChange} /> : null}
     </div>
   )
 }
@@ -330,6 +333,7 @@ export function DeckPicker({
   hideSaveAction = false,
   embedded = false,
   mode = 'anki',
+  autoSaveOnPick = false,
 }: DeckPickerProps) {
   const [search, setSearch] = useState('')
   const isLocalMode = mode === 'local'
@@ -342,6 +346,12 @@ export function DeckPicker({
     () => deckQuickPicks.filter((deck) => deck !== normalizedValue).slice(0, 20),
     [deckQuickPicks, normalizedValue],
   )
+  const commitPickedDeck = (deck: string) => {
+    onValueChange(deck)
+    if (autoSaveOnPick) {
+      window.setTimeout(() => onSave(), 0)
+    }
+  }
 
   const deckBrowser = (
     <Dialog>
@@ -383,6 +393,7 @@ export function DeckPicker({
               onValueChange={onValueChange}
               suggestions={suggestions}
               placeholder="输入新派组或选中牌组"
+              onSuggestionPick={commitPickedDeck}
             />
           </div>
 
@@ -392,7 +403,7 @@ export function DeckPicker({
             <ScrollArea className="h-full">
               <div className="p-3">
                 {treeNodes.length > 0 ? (
-                  <DeckTree nodes={treeNodes} currentDeck={value} onPick={onValueChange} />
+                  <DeckTree nodes={treeNodes} currentDeck={value} onPick={commitPickedDeck} />
                 ) : (
                   <div className="rounded-xl border border-dashed border-border/60 bg-background/85 px-4 py-8 text-sm text-muted-foreground">
                     没有找到匹配牌组。你可以继续输入一个新名称，或者先刷新本机牌组。
@@ -509,6 +520,7 @@ export function DeckPicker({
                 onValueChange={onValueChange}
                 suggestions={suggestions}
                 placeholder="例如 高等数学::导数应用"
+                onSuggestionPick={commitPickedDeck}
               />
             </FieldContent>
           </Field>
@@ -527,7 +539,7 @@ export function DeckPicker({
                     <button
                       key={deck}
                       type="button"
-                      onClick={() => onValueChange(deck)}
+                      onClick={() => commitPickedDeck(deck)}
                       className={cn(
                         'rounded-xl border px-3 py-2 text-left text-sm transition',
                         value.trim() === deck

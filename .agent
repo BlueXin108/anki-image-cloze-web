@@ -32,6 +32,7 @@
    - `docs/project-overview.md`
    - `docs/architecture.md`
    - `docs/workflows.md`
+6. 若任务涉及 UI 调整，先回顾现有可复用组件，优先通过复用组件、扩展组件可配置项或小范围样式渗透解决，不重复造轮子。
 
 ## 文档维护规则
 

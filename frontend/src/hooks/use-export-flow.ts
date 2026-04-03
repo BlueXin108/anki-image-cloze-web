@@ -5,7 +5,7 @@ import { parseTagInput } from '@/lib/workbench-state'
 import type { CardDraft, DraftListItem } from '@/types'
 
 export type ExportFlowStage = 'review' | 'confirm'
-export type ExportDestination = 'anki' | 'apkg'
+export type ExportDestination = 'anki' | 'apkg' | 'image-group'
 type ExportDraftEdit = { deck: string; tags: string[] }
 
 interface UseExportFlowParams {
@@ -41,7 +41,7 @@ export function useExportFlow({
   const [exportDraftEdits, setExportDraftEdits] = useState<Record<string, ExportDraftEdit>>({})
   const [deckInput, setDeckInput] = useState('')
   const [tagsInput, setTagsInput] = useState('')
-  const [quality, setQuality] = useState(80)
+  const [quality, setQuality] = useState(50)
   const deferredPersistTimeoutRef = useRef<number | null>(null)
 
   const persistDraftEdit = async (draftId: string, deck: string, tags: string[]) => {
@@ -91,7 +91,7 @@ export function useExportFlow({
   }
 
   const handleExportDialogChange = (open: boolean) => {
-    if (!open && (loadingKey === 'manual-export-anki' || loadingKey === 'manual-export-apkg')) return
+    if (!open && (loadingKey === 'manual-export-anki' || loadingKey === 'manual-export-apkg' || loadingKey === 'manual-export-image-group')) return
     if (!open && deferredPersistTimeoutRef.current !== null) {
       window.clearTimeout(deferredPersistTimeoutRef.current)
       deferredPersistTimeoutRef.current = null
@@ -165,7 +165,14 @@ export function useExportFlow({
   }
 
   const exportAllFromFlow = async (destination: ExportDestination) => {
-    await run(destination === 'anki' ? 'manual-export-anki' : 'manual-export-apkg', async () => {
+    const exportLoadingKey =
+      destination === 'anki'
+        ? 'manual-export-anki'
+        : destination === 'apkg'
+          ? 'manual-export-apkg'
+          : 'manual-export-image-group'
+
+    await run(exportLoadingKey, async () => {
       if (deferredPersistTimeoutRef.current !== null) {
         window.clearTimeout(deferredPersistTimeoutRef.current)
         deferredPersistTimeoutRef.current = null

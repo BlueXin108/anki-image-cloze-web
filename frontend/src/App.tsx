@@ -1,5 +1,6 @@
 import {
   DownloadIcon,
+  ImageDownIcon,
 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type InputHTMLAttributes } from 'react'
 import { toast } from 'sonner'
@@ -10,8 +11,21 @@ import { ManualDraftList } from '@/components/workbench/manual-draft-list'
 import { PipelinePlaceholder } from '@/components/workbench/pipeline-placeholder'
 import { StatusCapsule, type StatusTaskId, type StatusTaskState } from '@/components/workbench/status-capsule'
 import { ManualWorkspace } from '@/components/workbench/manual-workspace'
+import { WorkbenchSettingsDialog } from '@/components/workbench/workbench-settings-dialog'
 import { WorkbenchHeader, type WorkspaceGuideAction } from '@/components/workbench/workbench-header'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Progress } from '@/components/ui/progress'
 import { Skeleton } from '@/components/ui/skeleton'
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable'
 import { useExportFlow } from '@/hooks/use-export-flow'
@@ -19,11 +33,13 @@ import { useDeviceProfile } from '@/hooks/use-device-profile'
 import { api } from '@/lib/api'
 import { exportDraftsAsApkg, shareOrDownloadApkg } from '@/lib/apkg-export'
 import { downloadDeckPoolBackup, loadDeckPool, loadDeckQuickPicks, readDeckPoolBackup, rememberDeckName, rememberDeckNames, saveDeckPool } from '@/lib/deck-pool'
+import { exportDraftsAsImageGroup, shareOrDownloadFile } from '@/lib/image-group-export'
 import ankiHelpImage from '@/assets/ankiHelp-1.webp'
 import { buildDraftItemFromAsset, buildDraftItemsFromFiles, mergeImportedItems, preferredWorkspaceMode } from '@/lib/manual-project'
 import { releaseDraftItems } from '@/lib/project-store'
+import { allowedImageExportFormats, loadWorkbenchSettings, normalizeWorkbenchSettings, saveWorkbenchSettings } from '@/lib/workbench-settings'
 import { ankiLoadingState, classifyAnkiFailure, createInitialStatusTasks, EMPTY_ANKI_STATE, nowIso, replaceDraft, STATUS_TASK_ORDER, WORKSPACE_MODE_STORAGE_KEY } from '@/lib/workbench-state'
-import type { AnkiConnectionState, CardDraft, DraftListItem, WorkspaceMode } from '@/types'
+import type { AnkiConnectionState, CardDraft, DraftListItem, WorkspaceMode, WorkbenchSettings } from '@/types'
 
 type DirectoryInputProps = InputHTMLAttributes<HTMLInputElement> & {
   webkitdirectory?: string
@@ -33,8 +49,10 @@ type DirectoryInputProps = InputHTMLAttributes<HTMLInputElement> & {
 const MANUAL_PROJECT_MIN_SIZE = 340
 const STARTUP_SAMPLE_PATH = '内置示例/启动测试图.png'
 const ENABLE_STARTUP_SAMPLE = false
+const ENABLE_WORKSPACE_MODE_SWITCH = false
 const MOBILE_IMAGE_ACCEPT = 'image/*'
 const ANKI_HELP_PROMPT_DISMISSED_KEY = 'anki-cloze:anki-help-prompt-dismissed'
+const MANUAL_PANEL_LAYOUT_KEY = 'anki-cloze:manual-panel-layout'
 
 function WorkspaceLoadingShell({ mobile }: { mobile: boolean }) {
   return (
@@ -72,6 +90,52 @@ function WorkspaceLoadingShell({ mobile }: { mobile: boolean }) {
   )
 }
 
+function ImportCompressionOverlay({
+  open,
+  progress,
+}: {
+  open: boolean
+  progress: { percent: number; completed: number; total: number; fileName: string; stageLabel: string } | null
+}) {
+  if (!open || !progress) return null
+
+  return (
+    <div className="fixed inset-0 z-[80] flex items-center justify-center bg-background/58 px-4 backdrop-blur-md">
+      <Card className="w-full max-w-xl border-border/70 bg-background/94 shadow-2xl shadow-slate-900/10">
+        <CardHeader className="gap-3">
+          <div className="flex items-center gap-3">
+            <div className="flex size-11 items-center justify-center rounded-2xl border border-border/70 bg-muted/30 text-foreground/85">
+              <ImageDownIcon className="size-5" />
+            </div>
+            <div className="min-w-0 space-y-1">
+              <CardTitle>正在预处理导入图片</CardTitle>
+              <CardDescription>已开启导入压缩，当前会先统一缩图和压缩，再加入项目。</CardDescription>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-4">
+          <div className="rounded-2xl border border-border/60 bg-muted/15 p-4">
+            <div className="flex items-center justify-between gap-3 text-sm">
+              <div className="truncate font-medium text-foreground/88">{progress.stageLabel}</div>
+              <div className="shrink-0 text-xs tabular-nums text-muted-foreground">{progress.percent}%</div>
+            </div>
+            <div className="mt-3">
+              <Progress value={progress.percent} className="h-2" />
+            </div>
+            <div className="mt-3 flex items-center justify-between gap-3 text-xs text-muted-foreground">
+              <span className="truncate">{progress.fileName}</span>
+              <span className="shrink-0">{Math.min(progress.completed + 1, progress.total)}/{progress.total}</span>
+            </div>
+          </div>
+          <div className="text-xs leading-5 text-muted-foreground">
+            大图压缩时会比普通导入更久一些；处理完成后会自动回到工作台。
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  )
+}
+
 export default function App() {
   const deviceProfile = useDeviceProfile()
   const [draftItems, setDraftItems] = useState<DraftListItem[]>([])
@@ -88,22 +152,52 @@ export default function App() {
   const [storageReady, setStorageReady] = useState(false)
   const [isImportingFiles, setIsImportingFiles] = useState(false)
   const [importingLabel, setImportingLabel] = useState('正在准备项目')
+  const [importProgress, setImportProgress] = useState<{
+    percent: number
+    completed: number
+    total: number
+    fileName: string
+    stageLabel: string
+  } | null>(null)
   const [statusTasks, setStatusTasks] = useState<Record<StatusTaskId, StatusTaskState>>(() => createInitialStatusTasks())
   const [ankiHelpOpen, setAnkiHelpOpen] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [workbenchSettings, setWorkbenchSettings] = useState<WorkbenchSettings>(() => loadWorkbenchSettings())
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const fileManagerInputRef = useRef<HTMLInputElement | null>(null)
   const folderInputRef = useRef<HTMLInputElement | null>(null)
   const deckPoolInputRef = useRef<HTMLInputElement | null>(null)
+  const manualLayoutRef = useRef<HTMLDivElement | null>(null)
   const draftItemsRef = useRef<DraftListItem[]>([])
   const saveSequenceRef = useRef(0)
-  const ankiHelpPromptedRef = useRef(false)
-  const manualLayoutRef = useRef<HTMLDivElement | null>(null)
-  const [manualLayoutWidth, setManualLayoutWidth] = useState(() =>
-    typeof window === 'undefined' ? 1440 : Math.max(window.innerWidth - 80, MANUAL_PROJECT_MIN_SIZE),
-  )
+  const [manualPanelLayout, setManualPanelLayout] = useState<[number, number]>(() => {
+    if (typeof window === 'undefined') return [22, 78]
+    const raw = window.localStorage.getItem(MANUAL_PANEL_LAYOUT_KEY)
+    if (!raw) return [22, 78]
+    try {
+      const parsed = JSON.parse(raw) as [number, number]
+      if (
+        Array.isArray(parsed) &&
+        parsed.length === 2 &&
+        typeof parsed[0] === 'number' &&
+        typeof parsed[1] === 'number'
+      ) {
+        return parsed
+      }
+    } catch {
+      // ignore broken local cache
+    }
+    return [22, 78]
+  })
+  const [manualLayoutWidth, setManualLayoutWidth] = useState(0)
   const [ankiHelpPromptDismissed, setAnkiHelpPromptDismissed] = useState(() => {
     if (typeof window === 'undefined') return false
     return window.localStorage.getItem(ANKI_HELP_PROMPT_DISMISSED_KEY) === '1'
+  })
+  const [clearConfirmOpen, setClearConfirmOpen] = useState(false)
+  const [exportCleanupPrompt, setExportCleanupPrompt] = useState<{ open: boolean; draftIds: string[] }>({
+    open: false,
+    draftIds: [],
   })
 
   const selectedItem = useMemo(
@@ -111,6 +205,11 @@ export default function App() {
     [draftItems, selectedDraftId],
   )
   const activeDraftItems = useMemo(() => draftItems.filter((item) => !item.image.ignored), [draftItems])
+  const settingsPreviewItem = useMemo(() => {
+    if (activeDraftItems.length === 0) return null
+    const seed = activeDraftItems.reduce((sum, item) => sum + item.draft.id.charCodeAt(0), 0)
+    return activeDraftItems[seed % activeDraftItems.length] ?? activeDraftItems[0] ?? null
+  }, [activeDraftItems])
   const selectedDraftIndex = useMemo(
     () => activeDraftItems.findIndex((item) => item.draft.id === selectedItem?.draft.id),
     [activeDraftItems, selectedItem?.draft.id],
@@ -128,19 +227,30 @@ export default function App() {
     () => draftItems.filter((item) => !item.image.ignored && item.draft.masks.length > 0),
     [draftItems],
   )
+  const hasPendingExitGuard = useMemo(
+    () => draftItems.some((item) => !item.image.ignored && item.draft.masks.length > 0 && item.draft.review_status === 'draft'),
+    [draftItems],
+  )
+  const allowedImageGroupFormats = useMemo(() => allowedImageExportFormats(workbenchSettings), [workbenchSettings])
 
   const orderedStatusTasks = useMemo(
     () => STATUS_TASK_ORDER.filter((taskId) => deviceProfile.canDirectAnki || taskId !== 'anki').map((taskId) => statusTasks[taskId]),
     [deviceProfile.canDirectAnki, statusTasks],
   )
+  const manualProjectMinPercent = useMemo(() => {
+    if (manualLayoutWidth <= 0) return 22
+    const raw = (MANUAL_PROJECT_MIN_SIZE / manualLayoutWidth) * 100
+    return Math.min(45, Math.max(16, Number(raw.toFixed(2))))
+  }, [manualLayoutWidth])
+  const resolvedManualPanelLayout = useMemo<[number, number]>(() => {
+    const left = Math.max(manualPanelLayout[0], manualProjectMinPercent)
+    const safeLeft = Math.min(60, left)
+    return [safeLeft, Math.max(40, 100 - safeLeft)]
+  }, [manualPanelLayout, manualProjectMinPercent])
   const showWorkspaceLoadingShell = !storageReady
   const showWorkspaceProcessingOverlay = isImportingFiles || loadingKey === 'restore-project'
+  const showImportCompressionOverlay = isImportingFiles && workbenchSettings.importCompressionEnabled
   const workspaceProcessingText = isImportingFiles ? `${importingLabel}，正在处理图片和预览。` : '正在恢复你上次保存在浏览器里的项目。'
-  const manualProjectPanelPercent = useMemo(() => {
-    const nextPercent = (MANUAL_PROJECT_MIN_SIZE / Math.max(manualLayoutWidth, MANUAL_PROJECT_MIN_SIZE)) * 100
-    return Number(Math.max(18, Math.min(38, nextPercent)).toFixed(2))
-  }, [manualLayoutWidth])
-
   const updateStatusTask = (taskId: StatusTaskId, patch: Partial<StatusTaskState>) => {
     setStatusTasks((current) => ({
       ...current,
@@ -159,16 +269,13 @@ export default function App() {
   }, [])
 
   const promptAnkiHelpOnFirstFailure = useCallback(() => {
-    if (deviceProfile.isMobileDevice || ankiHelpPromptDismissed || ankiHelpPromptedRef.current) return
-
-    ankiHelpPromptedRef.current = true
+    if (deviceProfile.isMobileDevice || ankiHelpPromptDismissed) return
     toast('是否已安装 AnkiConnect？', {
       description: '它可以提供牌组直连服务；如果你只想导出 APKG，可以忽略这一步。',
       duration: Infinity,
       action: {
         label: 'AnkiConnect',
         onClick: () => {
-          dismissAnkiHelpPrompt()
           setAnkiHelpOpen(true)
         },
       },
@@ -184,24 +291,24 @@ export default function App() {
   }, [draftItems])
 
   useEffect(() => {
-    if (workspaceMode !== 'manual') return
-    const container = manualLayoutRef.current
-    if (!container) return
+    if (typeof window === 'undefined') return
+    window.localStorage.setItem(MANUAL_PANEL_LAYOUT_KEY, JSON.stringify(manualPanelLayout))
+  }, [manualPanelLayout])
 
-    const measure = () => {
-      setManualLayoutWidth(Math.max(container.clientWidth, MANUAL_PROJECT_MIN_SIZE))
+  useEffect(() => {
+    const node = manualLayoutRef.current
+    if (!node || typeof ResizeObserver === 'undefined') return
+
+    const updateWidth = () => {
+      const nextWidth = Math.round(node.getBoundingClientRect().width)
+      setManualLayoutWidth((current) => (current === nextWidth ? current : nextWidth))
     }
 
-    measure()
-    const observer = new ResizeObserver(() => {
-      measure()
-    })
-    observer.observe(container)
-
-    return () => {
-      observer.disconnect()
-    }
-  }, [workspaceMode])
+    updateWidth()
+    const observer = new ResizeObserver(() => updateWidth())
+    observer.observe(node)
+    return () => observer.disconnect()
+  }, [deviceProfile.isMobileLayout, workspaceMode])
 
   useEffect(() => {
     return () => {
@@ -231,6 +338,17 @@ export default function App() {
   useEffect(() => {
     window.localStorage.setItem(WORKSPACE_MODE_STORAGE_KEY, workspaceMode)
   }, [workspaceMode])
+
+  useEffect(() => {
+    if (ENABLE_WORKSPACE_MODE_SWITCH) return
+    if (workspaceMode === 'pipeline') {
+      setWorkspaceMode('manual')
+    }
+  }, [workspaceMode])
+
+  useEffect(() => {
+    saveWorkbenchSettings(workbenchSettings)
+  }, [workbenchSettings])
 
   useEffect(() => {
     let cancelled = false
@@ -303,6 +421,18 @@ export default function App() {
     return () => window.clearTimeout(handle)
   }, [draftItems, selectedDraftId, storageReady, workspaceMode])
 
+  useEffect(() => {
+    if (!hasPendingExitGuard || typeof window === 'undefined') return
+
+    const onBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault()
+      event.returnValue = ''
+    }
+
+    window.addEventListener('beforeunload', onBeforeUnload)
+    return () => window.removeEventListener('beforeunload', onBeforeUnload)
+  }, [hasPendingExitGuard])
+
   const run = async (key: string, action: () => Promise<void>) => {
     setLoadingKey(key)
     try {
@@ -318,6 +448,53 @@ export default function App() {
     releaseDraftItems(draftItemsRef.current)
     setDraftItems(items)
     setSelectedDraftId(nextSelectedDraftId ?? items[0]?.draft.id ?? null)
+  }
+
+  const removeDraftItem = (draftId: string) => {
+    const currentItems = draftItemsRef.current
+    const index = currentItems.findIndex(item => item.draft.id === draftId)
+    if (index === -1) return
+    const itemToRemove = currentItems[index]
+    
+    let nextSelectedId = selectedDraftId
+    if (selectedDraftId === draftId) {
+      const active = currentItems.filter((item) => !item.image.ignored)
+      const activeIndex = active.findIndex(item => item.draft.id === draftId)
+      if (active.length > 1) {
+        if (activeIndex < active.length - 1) {
+          nextSelectedId = active[activeIndex + 1].draft.id
+        } else {
+          nextSelectedId = active[activeIndex - 1].draft.id
+        }
+      } else {
+        nextSelectedId = null
+      }
+    }
+    
+    const nextItems = currentItems.filter(item => item.draft.id !== draftId)
+    setDraftItems(nextItems)
+    setSelectedDraftId(nextSelectedId)
+    releaseDraftItems([itemToRemove])
+    
+    // Skip empty project clearing here, project layout handles it via summary and empty states
+  }
+
+  const removeDraftItemsByIds = (draftIds: string[]) => {
+    if (draftIds.length === 0) return
+    const draftIdSet = new Set(draftIds)
+    const currentItems = draftItemsRef.current
+    const remainingItems = currentItems.filter((item) => !draftIdSet.has(item.draft.id))
+    const removedItems = currentItems.filter((item) => draftIdSet.has(item.draft.id))
+    const selectedStillExists = selectedDraftId ? remainingItems.some((item) => item.draft.id === selectedDraftId) : false
+
+    setDraftItems(remainingItems)
+    setSelectedDraftId(selectedStillExists ? selectedDraftId : (remainingItems[0]?.draft.id ?? null))
+    releaseDraftItems(removedItems)
+  }
+
+  const promptExportCleanup = (draftIds: string[]) => {
+    if (draftIds.length === 0) return
+    setExportCleanupPrompt({ open: true, draftIds })
   }
 
   const refreshAnkiConnection = async (options?: { source?: 'startup' | 'manual' | 'create-deck' }) => {
@@ -345,7 +522,7 @@ export default function App() {
           templateStatus: null,
         })
         updateStatusTask('anki', { state: 'error', progress: 100, detail: check.message })
-        if (options?.source === 'startup') {
+        if (options?.source === 'startup' || options?.source === 'manual') {
           promptAnkiHelpOnFirstFailure()
         }
         return
@@ -385,7 +562,7 @@ export default function App() {
         templateStatus: null,
       })
       updateStatusTask('anki', { state: 'error', progress: 100, detail: rawMessage })
-      if (options?.source === 'startup') {
+      if (options?.source === 'startup' || options?.source === 'manual') {
         promptAnkiHelpOnFirstFailure()
       }
       if (options?.source === 'manual' || options?.source === 'create-deck') {
@@ -414,7 +591,6 @@ export default function App() {
   }
 
   const clearLocalProject = async () => {
-    if (!window.confirm('这会清空当前浏览器里的项目数据和图片缓存，确定继续吗？')) return
     releaseDraftItems(draftItemsRef.current)
     draftItemsRef.current = []
     setDraftItems([])
@@ -433,6 +609,7 @@ export default function App() {
   const ingestFiles = async (files: FileList | File[], sourceLabel: string) => {
     setIsImportingFiles(true)
     setImportingLabel(sourceLabel)
+    setImportProgress(null)
     const loadingToastId = toast.loading(`${sourceLabel}处理中`, {
       description: '正在整理图片并加入列表，请稍等一下。',
     })
@@ -440,11 +617,19 @@ export default function App() {
 
     try {
       const items = await buildDraftItemsFromFiles(files, {
-        onProgress: ({ completed, total, fileName }) => {
+        settings: workbenchSettings,
+        onProgress: ({ completed, total, fileName, percent, stageLabel }) => {
+          setImportProgress({
+            percent,
+            completed,
+            total,
+            fileName,
+            stageLabel,
+          })
           updateStatusTask('files', {
             state: 'running',
-            progress: Math.max(5, Math.round((completed / total) * 100)),
-            detail: `正在处理 ${fileName}（${completed}/${total}）。`,
+            progress: Math.max(5, percent),
+            detail: `${stageLabel}：${fileName}（${Math.min(completed + 1, total)}/${total}）。`,
           })
         },
       })
@@ -485,6 +670,7 @@ export default function App() {
       throw error
     } finally {
       setIsImportingFiles(false)
+      setImportProgress(null)
     }
   }
 
@@ -663,6 +849,7 @@ export default function App() {
       toast.success('当前项目导出已完成', {
         description: failedCount > 0 ? `成功 ${successCount} 项，失败 ${failedCount} 项。` : `本次共成功写入 ${successCount} 项。`,
       })
+      promptExportCleanup(result.results.filter((entry) => entry.ok).map((entry) => entry.draft_id))
     }
     if (failedCount > 0) {
       const firstFailed = result.results.find((entry) => !entry.ok)
@@ -736,6 +923,7 @@ export default function App() {
               ? '下载已经开始，网页也顺手试了一次唤起可接收这个卡包的应用。'
               : '下载完成后，可以手动用 Anki 或 AnkiDroid 导入。',
       })
+      promptExportCleanup(targets.map((item) => item.draft.id))
       return { successCount: targets.length, failedCount: 0 }
     } catch (error) {
       updateStatusTask('export', { state: 'error', progress: 100, detail: error instanceof Error ? error.message : '生成 APKG 卡包失败。' })
@@ -743,9 +931,83 @@ export default function App() {
     }
   }
 
-  const exportDrafts = async (targets: DraftListItem[], destination: 'anki' | 'apkg') => {
+  const exportDraftsToImageGroup = async (targets: DraftListItem[]) => {
+    if (targets.length === 0) {
+      updateStatusTask('export', { state: 'error', progress: 100, detail: '当前没有可导出的卡片。' })
+      toast.error('当前没有可导出的卡片', { description: '先画出遮挡，再打开导出流程逐张确认牌组。' })
+      return { successCount: 0, failedCount: 0 }
+    }
+
+    updateStatusTask('export', { state: 'running', progress: 5, detail: '正在整理纯图像组导出内容。' })
+
+    try {
+      const imageGroupFormatLabel = workbenchSettings.imageGroupExportFormat === 'jpeg' ? 'JPG' : workbenchSettings.imageGroupExportFormat.toUpperCase()
+      const { blob, fileName } = await exportDraftsAsImageGroup({
+        items: targets,
+        imageFormat: workbenchSettings.imageGroupExportFormat,
+        imageQuality: workbenchSettings.imageGroupExportQuality,
+        packageName: `anki-image-group-${new Date().toISOString().slice(0, 10)}`,
+        onProgress: ({ completed, total, label }) => {
+          updateStatusTask('export', {
+            state: 'running',
+            progress: Math.max(10, Math.round((completed / total) * 100)),
+            detail: `已处理 ${completed}/${total} 项，最近一项：${label}`,
+          })
+        },
+      })
+
+      const delivery = await shareOrDownloadFile({
+        blob,
+        fileName,
+        mimeType: 'application/zip',
+        preferShare: deviceProfile.isMobileDevice,
+      })
+
+      const now = nowIso()
+      const exportedIds = new Set(targets.map((item) => item.draft.id))
+      setDraftItems((current) =>
+        current.map((item) =>
+          exportedIds.has(item.draft.id)
+            ? {
+                ...item,
+                draft: {
+                  ...item.draft,
+                  review_status: 'packaged',
+                  updated_at: now,
+                },
+              }
+            : item,
+        ),
+      )
+
+      updateStatusTask('export', {
+        state: 'success',
+        progress: 100,
+        detail:
+          delivery === 'shared'
+            ? `纯图像组已生成，并已打开系统分享。`
+            : `纯图像组压缩包已生成并开始下载。`,
+      })
+      toast.success('纯图像组已生成', {
+        description:
+          delivery === 'shared'
+            ? `已按 ${imageGroupFormatLabel} 图片组打开系统分享。`
+            : `已按 ${imageGroupFormatLabel} 图片组开始下载压缩包。`,
+      })
+      promptExportCleanup(targets.map((item) => item.draft.id))
+      return { successCount: targets.length, failedCount: 0 }
+    } catch (error) {
+      updateStatusTask('export', { state: 'error', progress: 100, detail: error instanceof Error ? error.message : '生成纯图像组失败。' })
+      throw error
+    }
+  }
+
+  const exportDrafts = async (targets: DraftListItem[], destination: 'anki' | 'apkg' | 'image-group') => {
     if (destination === 'anki') {
       return importDraftsToAnki(targets)
+    }
+    if (destination === 'image-group') {
+      return exportDraftsToImageGroup(targets)
     }
     return exportDraftsToApkg(targets)
   }
@@ -791,6 +1053,10 @@ export default function App() {
       exported: active.filter((item) => item.draft.review_status === 'imported' || item.draft.review_status === 'packaged').length,
     }
   }, [draftItems])
+  const exportButtonLabel = useMemo(() => {
+    if (exportQueue.length === 0) return '导出当前项目全部卡片'
+    return exportQueue.length === summary.images ? '导出所有图片' : '导出所有已编辑图片'
+  }, [exportQueue.length, summary.images])
 
   const manualGuide = useMemo(() => {
     if (summary.images === 0) {
@@ -843,10 +1109,10 @@ export default function App() {
               APKG
             </InlineEmphasis>
           </span>
-          卡包；当前有 {exportQueue.length} 张图片已经就绪。
+          卡包或纯图像组；当前有 {exportQueue.length} 张图片已经就绪。
         </>
       ) : (
-        <>现在可以进入导出确认，当前有 {exportQueue.length} 张图片已经就绪。</>
+        <>现在可以进入导出确认，支持直连 Anki、APKG 或纯图像组；当前有 {exportQueue.length} 张图片已经就绪。</>
       ),
       action: 'open-export' as WorkspaceGuideAction,
       actionLabel: '打开导出',
@@ -967,7 +1233,7 @@ export default function App() {
             onImportFolder={() => folderInputRef.current?.click()}
             onRestoreProject={() => void run('restore-project', restoreSavedProject)}
             onRefreshAnki={() => void run('refresh-anki', () => refreshAnkiConnection({ source: 'manual' }))}
-            onClearProject={() => void run('clear-project', clearLocalProject)}
+            onClearProject={() => setClearConfirmOpen(true)}
             onExportDeckPoolBackup={deviceProfile.isMobileDevice ? exportDeckPoolBackupFile : undefined}
             onImportDeckPoolBackup={deviceProfile.isMobileDevice ? () => deckPoolInputRef.current?.click() : undefined}
             onGuideAction={(action) => void runGuideAction(action)}
@@ -977,6 +1243,16 @@ export default function App() {
             onAnkiHelpOpenChange={setAnkiHelpOpen}
             onOpenAnkiHelp={() => setAnkiHelpOpen(true)}
             touchOptimized={deviceProfile.isTouchLike}
+            settingsAction={(
+              <WorkbenchSettingsDialog
+                open={settingsOpen}
+                onOpenChange={setSettingsOpen}
+                settings={workbenchSettings}
+                onSettingsChange={(next) => setWorkbenchSettings(normalizeWorkbenchSettings(next))}
+                previewBlob={settingsPreviewItem?.image_blob ?? null}
+              />
+            )}
+            showModeTabs={ENABLE_WORKSPACE_MODE_SWITCH}
           />
         </div>
 
@@ -992,6 +1268,7 @@ export default function App() {
                   items={draftItems}
                   selectedDraftId={selectedItem?.draft.id ?? null}
                   onSelect={setSelectedDraftId}
+                  onRemoveItem={removeDraftItem}
                   mobileLayout
                 />
                 <div className="rounded-2xl border border-border/70 bg-background/90 shadow-lg shadow-slate-900/5 backdrop-blur">
@@ -1012,16 +1289,26 @@ export default function App() {
               </div>
             ) : (
               <div ref={manualLayoutRef} className="min-h-[calc(100vh-220px)]">
-                <ResizablePanelGroup orientation="horizontal" className="min-h-[calc(100vh-220px)] rounded-2xl border border-border/70 bg-background/90 shadow-lg shadow-slate-900/5 backdrop-blur">
-                  <ResizablePanel defaultSize={manualProjectPanelPercent} minSize={manualProjectPanelPercent}>
+                <ResizablePanelGroup
+                  orientation="horizontal"
+                  className="min-h-[calc(100vh-220px)] rounded-2xl border border-border/70 bg-background/90 shadow-lg shadow-slate-900/5 backdrop-blur"
+                  onLayoutChanged={(sizes) => {
+                    if (Array.isArray(sizes) && sizes.length === 2) {
+                      setManualPanelLayout((current) =>
+                        current[0] === sizes[0] && current[1] === sizes[1] ? current : [sizes[0], sizes[1]],
+                      )
+                    }
+                  }}
+                >
+                  <ResizablePanel defaultSize={resolvedManualPanelLayout[0]} minSize={manualProjectMinPercent}>
                     <div
-                      className={editorHoverActive ? 'h-full min-w-[340px] transition-[opacity,filter] duration-200 opacity-55 saturate-75' : 'h-full min-w-[340px] transition-[opacity,filter] duration-200'}
+                      className={editorHoverActive ? 'h-full w-full transition-[opacity,filter] duration-200 opacity-55 saturate-75' : 'h-full w-full transition-[opacity,filter] duration-200'}
                     >
-                      <ManualDraftList items={draftItems} selectedDraftId={selectedItem?.draft.id ?? null} onSelect={setSelectedDraftId} />
+                      <ManualDraftList items={draftItems} selectedDraftId={selectedItem?.draft.id ?? null} onSelect={setSelectedDraftId} onRemoveItem={removeDraftItem} />
                     </div>
                   </ResizablePanel>
                   <ResizableHandle withHandle />
-                  <ResizablePanel defaultSize={100 - manualProjectPanelPercent} minSize={60}>
+                  <ResizablePanel defaultSize={resolvedManualPanelLayout[1]} minSize={100 - Math.min(60, resolvedManualPanelLayout[0])}>
                     <ManualWorkspace
                       selectedItem={selectedItem}
                       onMasksCommit={commitMasks}
@@ -1059,6 +1346,8 @@ export default function App() {
         )}
       </div>
 
+      <ImportCompressionOverlay open={showImportCompressionOverlay} progress={importProgress} />
+
       {!deviceProfile.isMobileDevice ? <StatusCapsule tasks={orderedStatusTasks} side="left" /> : null}
 
       {workspaceMode === 'manual' ? (
@@ -1066,7 +1355,7 @@ export default function App() {
           <Button
             type="button"
             size="lg"
-            className={deviceProfile.isMobileLayout ? 'pointer-events-auto h-12 w-full rounded-2xl shadow-lg shadow-slate-900/10' : 'pointer-events-auto rounded-full shadow-lg shadow-slate-900/10 cursor-pointer hover:translate-y-1 hover:h-12 hover:px-4 hover:bg-white hover:text-black active:scale-[0.99]'}
+            className={deviceProfile.isMobileLayout ? 'pointer-events-auto trs-all-400 h-12 w-full rounded-2xl shadow-lg shadow-slate-900/10 hover:-translate-y-0.5 active:scale-[0.98]' : 'pointer-events-auto trs-all-400 rounded-full shadow-lg shadow-slate-900/10 cursor-pointer hover:-translate-y-0.5 hover:h-12 hover:px-4 hover:bg-white hover:text-black active:scale-[0.98]'}
             onClick={() => {
               if (exportQueue.length === 0) {
                 updateStatusTask('export', { state: 'error', progress: 100, detail: '当前还没有可以进入导出流程的图片。' })
@@ -1076,7 +1365,7 @@ export default function App() {
             disabled={exportQueue.length === 0}
           >
             <DownloadIcon data-icon="inline-start " />
-            导出当前项目全部卡片
+            {exportButtonLabel}
             <span className="rounded-full bg-background/16 px-2 py-0.5 text-xs">{exportQueue.length}</span>
           </Button>
         </div>
@@ -1107,17 +1396,84 @@ export default function App() {
         onQualityChange={setQuality}
         onExportToAnki={() => void exportAllFromFlow('anki')}
         onExportToApkg={() => void exportAllFromFlow('apkg')}
+        onExportToImageGroup={() => void exportAllFromFlow('image-group')}
         onMasksCommit={commitMasks}
         onCropCommit={commitCrop}
         isRefreshingDecks={loadingKey === 'refresh-anki' || ankiState.level === 'loading'}
         isCreatingDeck={loadingKey === 'create-deck'}
         isExportingAnki={loadingKey === 'manual-export-anki'}
         isExportingApkg={loadingKey === 'manual-export-apkg'}
+        isExportingImageGroup={loadingKey === 'manual-export-image-group'}
+        imageGroupFormat={workbenchSettings.imageGroupExportFormat}
+        imageGroupQuality={workbenchSettings.imageGroupExportQuality}
+        onImageGroupFormatChange={(value) =>
+          setWorkbenchSettings((current) => normalizeWorkbenchSettings({ ...current, imageGroupExportFormat: value }))
+        }
+        onImageGroupQualityChange={(value) =>
+          setWorkbenchSettings((current) => normalizeWorkbenchSettings({ ...current, imageGroupExportQuality: value }))
+        }
+        allowedImageGroupFormats={allowedImageGroupFormats}
+        importCompressionEnabled={workbenchSettings.importCompressionEnabled}
+        importCompressionFormat={workbenchSettings.importCompressionFormat}
         allowDirectAnki={deviceProfile.canDirectAnki}
         deckPickerMode={deviceProfile.canDirectAnki ? 'anki' : 'local'}
         touchOptimized={deviceProfile.isTouchLike}
         onOpenAnkiHelp={() => setAnkiHelpOpen(true)}
       />
+
+      <AlertDialog open={clearConfirmOpen} onOpenChange={setClearConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>确认清空当前项目？</AlertDialogTitle>
+            <AlertDialogDescription>
+              这会移除当前浏览器里保存的图片、遮罩、牌组和标签信息。已经导出的内容不会受影响。
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>先不清空</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                setClearConfirmOpen(false)
+                void run('clear-project', clearLocalProject)
+              }}
+            >
+              确认清空
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog
+        open={exportCleanupPrompt.open}
+        onOpenChange={(open) => {
+          setExportCleanupPrompt((current) => ({ ...current, open }))
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>导出已完成，要清掉这批项目吗？</AlertDialogTitle>
+            <AlertDialogDescription>
+              这只会把当前浏览器里刚刚导出的图片从项目列表里移除，不会影响你已经生成的卡包、图像组或已经写进 Anki 的内容。
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel
+              onClick={() => setExportCleanupPrompt({ open: false, draftIds: [] })}
+            >
+              先保留
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                removeDraftItemsByIds(exportCleanupPrompt.draftIds)
+                setExportCleanupPrompt({ open: false, draftIds: [] })
+                toast.success('已清掉刚刚导出的项目', { description: '当前浏览器里的项目列表已经同步收干净。' })
+              }}
+            >
+              清掉已导出项目
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

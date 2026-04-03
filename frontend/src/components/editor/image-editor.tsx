@@ -1,7 +1,17 @@
-import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
 import { CropIcon, PlusIcon, Redo2Icon, RotateCcwIcon, ScanSearchIcon, Trash2Icon, Undo2Icon, EyeIcon, EyeOffIcon } from 'lucide-react'
 
 import type { BBox, CardDraft, MaskRect } from '@/types'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
@@ -395,6 +405,9 @@ export function ImageEditor({
   const wheelHistoryRef = useRef<{ key: string; at: number } | null>(null)
   const wheelCommitTimeoutRef = useRef<number | null>(null)
   const wheelPendingMasksRef = useRef<MaskRect[] | null>(null)
+  const dragRef = useRef<DragState | null>(null)
+  const pendingPointerRef = useRef<{ clientX: number; clientY: number } | null>(null)
+  const pointerFrameRef = useRef<number | null>(null)
   const [localMasks, setLocalMasks] = useState<MaskRect[]>(normalizedDraftMasks)
   const [localCrop, setLocalCrop] = useState<BBox>(resolveDisplayedCrop(draft, imageWidth, imageHeight))
   const [selectedMaskIds, setSelectedMaskIds] = useState<string[]>([])
@@ -404,17 +417,33 @@ export function ImageEditor({
   const [sourceImageLoaded, setSourceImageLoaded] = useState(false)
   const [hoveredMaskId, setHoveredMaskId] = useState<string | null>(null)
   const [pointerInsideEditor, setPointerInsideEditor] = useState(false)
+  const [resetConfirmOpen, setResetConfirmOpen] = useState(false)
   const [normalViewportWidth, setNormalViewportWidth] = useState<number | null>(null)
   const [focusViewportSize, setFocusViewportSize] = useState<{ width: number; height: number } | null>(null)
   const [windowHeight, setWindowHeight] = useState<number>(() => (typeof window === 'undefined' ? 900 : window.innerHeight))
-  const normalizedLocalMasks = normalizeMaskGroups(localMasks)
-  const selectedMasks = localMasks.filter((mask) => selectedMaskIds.includes(mask.id))
-  const selectedGroupBox = boundingBoxOfMasks(selectedMasks)
-  const orderByMaskId = new Map(normalizedLocalMasks.map((mask) => [mask.id, mask.card_order ?? 1]))
-  const groupSizeByMaskId = new Map(
-    normalizedLocalMasks.map((mask) => [mask.id, normalizedLocalMasks.filter((entry) => maskGroupId(entry) === maskGroupId(mask)).length]),
+  const selectedMaskIdSet = useMemo(() => new Set(selectedMaskIds), [selectedMaskIds])
+  const normalizedLocalMasks = useMemo(() => normalizeMaskGroups(localMasks), [localMasks])
+  const selectedMasks = useMemo(
+    () => localMasks.filter((mask) => selectedMaskIdSet.has(mask.id)),
+    [localMasks, selectedMaskIdSet],
   )
-  const selectedGroupIds = [...new Set(selectedMasks.map((mask) => maskGroupId(mask)))]
+  const selectedGroupBox = boundingBoxOfMasks(selectedMasks)
+  const orderByMaskId = useMemo(
+    () => new Map(normalizedLocalMasks.map((mask) => [mask.id, mask.card_order ?? 1])),
+    [normalizedLocalMasks],
+  )
+  const groupSizeByMaskId = useMemo(() => {
+    const counts = new Map<string, number>()
+    normalizedLocalMasks.forEach((mask) => {
+      const groupId = maskGroupId(mask)
+      counts.set(groupId, (counts.get(groupId) ?? 0) + 1)
+    })
+    return new Map(normalizedLocalMasks.map((mask) => [mask.id, counts.get(maskGroupId(mask)) ?? 1]))
+  }, [normalizedLocalMasks])
+  const selectedGroupIds = useMemo(
+    () => [...new Set(selectedMasks.map((mask) => maskGroupId(mask)))],
+    [selectedMasks],
+  )
   const canMergeSelectedMasks = selectedMaskIds.length > 1 && selectedGroupIds.length > 1
   const canSplitSelectedMasks =
     selectedMaskIds.length > 1 &&
@@ -493,6 +522,9 @@ export function ImageEditor({
   useEffect(
     () => () => {
       cancelPendingWheelCommit()
+      if (pointerFrameRef.current !== null && typeof window !== 'undefined') {
+        window.cancelAnimationFrame(pointerFrameRef.current)
+      }
     },
     [],
   )
@@ -535,6 +567,10 @@ export function ImageEditor({
   useEffect(() => {
     localCropRef.current = localCrop
   }, [localCrop])
+
+  useEffect(() => {
+    dragRef.current = drag
+  }, [drag])
 
   const applySnapshot = async (snapshot: EditorSnapshot) => {
     const nextMasks = cloneMasks(snapshot.masks)
@@ -709,30 +745,38 @@ export function ImageEditor({
   useEffect(() => {
     if (!drag) return
 
-    const onPointerMove = (event: PointerEvent) => {
-      if (drag.kind === 'order-trace') {
-        const point = clientToImagePoint(event.clientX, event.clientY)
+    const flushPendingPointerMove = () => {
+      pointerFrameRef.current = null
+      const activeDrag = dragRef.current
+      const pendingPointer = pendingPointerRef.current
+      if (!activeDrag || !pendingPointer) return
+
+      if (activeDrag.kind === 'order-trace') {
+        const point = clientToImagePoint(pendingPointer.clientX, pendingPointer.clientY)
         const hitMask = [...localMasksRef.current].reverse().find((mask) => pointInBox(point, mask.bbox))
         const hitGroupId = hitMask ? maskGroupId(hitMask) : null
-        setDrag({
-          kind: 'order-trace',
-          points: [...drag.points, point],
-          visitedGroupIds:
-            hitGroupId && !drag.visitedGroupIds.includes(hitGroupId)
-              ? [...drag.visitedGroupIds, hitGroupId]
-              : drag.visitedGroupIds,
+        setDrag((current) => {
+          if (!current || current.kind !== 'order-trace') return current
+          return {
+            kind: 'order-trace',
+            points: [...current.points, point],
+            visitedGroupIds:
+              hitGroupId && !current.visitedGroupIds.includes(hitGroupId)
+                ? [...current.visitedGroupIds, hitGroupId]
+                : current.visitedGroupIds,
+          }
         })
         return
       }
 
       const displaySize = getDisplaySize()
-      const dx = ((event.clientX - drag.startX) / Math.max(displaySize.width, 1)) * imageWidth
-      const dy = ((event.clientY - drag.startY) / Math.max(displaySize.height, 1)) * imageHeight
+      const dx = ((pendingPointer.clientX - activeDrag.startX) / Math.max(displaySize.width, 1)) * imageWidth
+      const dy = ((pendingPointer.clientY - activeDrag.startY) / Math.max(displaySize.height, 1)) * imageHeight
 
-      if (drag.kind === 'mask-move') {
+      if (activeDrag.kind === 'mask-move') {
         setLocalMasks((current) =>
           current.map((mask) => {
-            const startBBox = drag.startMasks[mask.id]
+            const startBBox = activeDrag.startMasks[mask.id]
             if (!startBBox) return mask
             return { ...mask, bbox: moveBox(startBBox, dx, dy, imageWidth, imageHeight) }
           }),
@@ -740,32 +784,32 @@ export function ImageEditor({
         return
       }
 
-      if (drag.kind === 'mask-resize') {
+      if (activeDrag.kind === 'mask-resize') {
         setLocalMasks((current) =>
           current.map((mask) =>
-            mask.id === drag.maskId
-              ? { ...mask, bbox: resizeBox(drag.startBBox, drag.handle, dx, dy, imageWidth, imageHeight) }
+            mask.id === activeDrag.maskId
+              ? { ...mask, bbox: resizeBox(activeDrag.startBBox, activeDrag.handle, dx, dy, imageWidth, imageHeight) }
               : mask,
           ),
         )
         return
       }
 
-      if (drag.kind === 'crop-move') {
-        setLocalCrop(moveBox(drag.startBBox, dx, dy, imageWidth, imageHeight))
+      if (activeDrag.kind === 'crop-move') {
+        setLocalCrop(moveBox(activeDrag.startBBox, dx, dy, imageWidth, imageHeight))
         return
       }
 
-      if (drag.kind === 'crop-resize') {
-        setLocalCrop(resizeBox(drag.startBBox, drag.handle, dx, dy, imageWidth, imageHeight))
+      if (activeDrag.kind === 'crop-resize') {
+        setLocalCrop(resizeBox(activeDrag.startBBox, activeDrag.handle, dx, dy, imageWidth, imageHeight))
         return
       }
 
-      if (drag.kind === 'selection-resize') {
+      if (activeDrag.kind === 'selection-resize') {
         const resized = resizeBoxesAroundOwnCenter(
-          drag.startMasks,
-          drag.maskIds,
-          drag.handle,
+          activeDrag.startMasks,
+          activeDrag.maskIds,
+          activeDrag.handle,
           dx,
           dy,
           imageWidth,
@@ -777,33 +821,45 @@ export function ImageEditor({
         return
       }
 
-      if (drag.kind === 'selection-marquee') {
-        const point = clientToImagePoint(event.clientX, event.clientY)
-        const marqueeBox = boxFromPoints(drag.startPoint.x, drag.startPoint.y, point.x, point.y, imageWidth, imageHeight)
-        setDrag({
-          ...drag,
-          currentX: event.clientX,
-          currentY: event.clientY,
-          currentPoint: point,
+      if (activeDrag.kind === 'selection-marquee') {
+        const point = clientToImagePoint(pendingPointer.clientX, pendingPointer.clientY)
+        const marqueeBox = boxFromPoints(activeDrag.startPoint.x, activeDrag.startPoint.y, point.x, point.y, imageWidth, imageHeight)
+        setDrag((current) => {
+          if (!current || current.kind !== 'selection-marquee') return current
+          return {
+            ...current,
+            currentX: pendingPointer.clientX,
+            currentY: pendingPointer.clientY,
+            currentPoint: point,
+          }
         })
-        setSelectedMaskIds(
-          localMasksRef.current.filter((mask) => boxesIntersect(mask.bbox, marqueeBox)).map((mask) => mask.id),
-        )
+        setSelectedMaskIds(localMasksRef.current.filter((mask) => boxesIntersect(mask.bbox, marqueeBox)).map((mask) => mask.id))
         return
       }
 
-      const point = clientToImagePoint(event.clientX, event.clientY)
+      const point = clientToImagePoint(pendingPointer.clientX, pendingPointer.clientY)
       setLocalMasks((current) =>
         current.map((mask) =>
-          mask.id === drag.maskId
-            ? { ...mask, bbox: boxFromPoints(drag.startPoint.x, drag.startPoint.y, point.x, point.y, imageWidth, imageHeight) }
+          mask.id === activeDrag.maskId
+            ? { ...mask, bbox: boxFromPoints(activeDrag.startPoint.x, activeDrag.startPoint.y, point.x, point.y, imageWidth, imageHeight) }
             : mask,
         ),
       )
     }
 
+    const onPointerMove = (event: PointerEvent) => {
+      pendingPointerRef.current = { clientX: event.clientX, clientY: event.clientY }
+      if (pointerFrameRef.current !== null || typeof window === 'undefined') return
+      pointerFrameRef.current = window.requestAnimationFrame(flushPendingPointerMove)
+    }
+
     const onPointerUp = async () => {
+      if (pointerFrameRef.current !== null && typeof window !== 'undefined') {
+        window.cancelAnimationFrame(pointerFrameRef.current)
+        flushPendingPointerMove()
+      }
       const active = drag
+      pendingPointerRef.current = null
       setDrag(null)
       if (active.kind === 'selection-marquee') {
         return
@@ -828,6 +884,10 @@ export function ImageEditor({
     window.addEventListener('pointermove', onPointerMove)
     window.addEventListener('pointerup', onPointerUp, { once: true })
     return () => {
+      if (pointerFrameRef.current !== null && typeof window !== 'undefined') {
+        window.cancelAnimationFrame(pointerFrameRef.current)
+        pointerFrameRef.current = null
+      }
       window.removeEventListener('pointermove', onPointerMove)
       window.removeEventListener('pointerup', onPointerUp)
     }
@@ -1186,11 +1246,7 @@ export function ImageEditor({
                   size="icon-sm"
                   title="重置"
                   className={cn("size-8")}
-                  onClick={() => {
-                    if (window.confirm("确定要重置当前图片的所有编辑吗？此操作不可逆。")) {
-                      void resetEditor()
-                    }
-                  }}
+                  onClick={() => setResetConfirmOpen(true)}
                 >
                   <RotateCcwIcon className="size-4" />
                 </Button>
@@ -1240,6 +1296,7 @@ export function ImageEditor({
                 ref={imageRef}
                 src={sourceImageUrl}
                 alt="Source"
+                decoding="async"
                 className={resolvedImageClassName}
                 onLoad={() => setSourceImageLoaded(true)}
                 onError={() => setSourceImageLoaded(true)}
@@ -1299,10 +1356,14 @@ export function ImageEditor({
                   {!readOnly ? (
                     <div className="pointer-events-auto">
                       {(['n', 's', 'e', 'w', 'nw', 'ne', 'sw', 'se'] as const).map((handle) =>
-                        makeResizeHotzone(handle, (event, selectedHandle) => beginCropDrag(event, 'crop-resize', selectedHandle)),
+                        <Fragment key={`crop-hotzone-${handle}`}>
+                          {makeResizeHotzone(handle, (event, selectedHandle) => beginCropDrag(event, 'crop-resize', selectedHandle))}
+                        </Fragment>,
                       )}
                       {(['nw', 'ne', 'sw', 'se'] as const).map((handle) =>
-                        makeHandle(handle, (event, selectedHandle) => beginCropDrag(event, 'crop-resize', selectedHandle)),
+                        <Fragment key={`crop-handle-${handle}`}>
+                          {makeHandle(handle, (event, selectedHandle) => beginCropDrag(event, 'crop-resize', selectedHandle))}
+                        </Fragment>,
                       )}
                     </div>
                   ) : null}
@@ -1348,12 +1409,16 @@ export function ImageEditor({
                           (
                             <>
                               {(['n', 's', 'e', 'w', 'nw', 'ne', 'sw', 'se'] as const).map((handle) =>
-                                makeResizeHotzone(handle, (event, selectedHandle) => beginMaskResize(event, mask, selectedHandle)),
+                                <Fragment key={`mask-${mask.id}-hotzone-${handle}`}>
+                                  {makeResizeHotzone(handle, (event, selectedHandle) => beginMaskResize(event, mask, selectedHandle))}
+                                </Fragment>,
                               )}
                               {(['nw', 'ne', 'sw', 'se'] as const).map((handle) =>
-                                makeHandle(handle, (event, selectedHandle) => beginMaskResize(event, mask, selectedHandle), {
-                                  dimmed: drag?.kind === 'mask-resize' || drag?.kind === 'selection-resize',
-                                }),
+                                <Fragment key={`mask-${mask.id}-handle-${handle}`}>
+                                  {makeHandle(handle, (event, selectedHandle) => beginMaskResize(event, mask, selectedHandle), {
+                                    dimmed: drag?.kind === 'mask-resize' || drag?.kind === 'selection-resize',
+                                  })}
+                                </Fragment>,
                               )}
                             </>
                           )}
@@ -1386,13 +1451,17 @@ export function ImageEditor({
                     </div>
                     <div className="pointer-events-auto">
                       {(['n', 's', 'e', 'w', 'nw', 'ne', 'sw', 'se'] as const).map((handle) =>
-                        makeResizeHotzone(handle, (event, selectedHandle) => beginSelectionResize(event, selectedHandle)),
+                        <Fragment key={`selection-hotzone-${handle}`}>
+                          {makeResizeHotzone(handle, (event, selectedHandle) => beginSelectionResize(event, selectedHandle))}
+                        </Fragment>,
                       )}
                       {(['nw', 'ne', 'sw', 'se'] as const).map((handle) =>
-                        makeHandle(handle, (event, selectedHandle) => beginSelectionResize(event, selectedHandle), {
-                          dimmed: drag?.kind === 'selection-resize',
-                          sizeClass: 'size-[12px]',
-                        }),
+                        <Fragment key={`selection-handle-${handle}`}>
+                          {makeHandle(handle, (event, selectedHandle) => beginSelectionResize(event, selectedHandle), {
+                            dimmed: drag?.kind === 'selection-resize',
+                            sizeClass: 'size-[12px]',
+                          })}
+                        </Fragment>,
                       )}
                     </div>
                   </div>
@@ -1437,6 +1506,28 @@ export function ImageEditor({
         </div>
       </div>
       {footerSlot}
+
+      <AlertDialog open={resetConfirmOpen} onOpenChange={setResetConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>确认重置当前图片？</AlertDialogTitle>
+            <AlertDialogDescription>
+              这会把当前图片的遮罩和裁切一起恢复到初始状态，已经做过的本图编辑会被清掉。
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>先不重置</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                setResetConfirmOpen(false)
+                void resetEditor()
+              }}
+            >
+              确认重置
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

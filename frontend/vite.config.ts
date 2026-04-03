@@ -19,6 +19,11 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
+      // Patch: redirect compose-refs to our fixed version that stabilises
+      // ref callbacks, preventing the React 19 "Maximum update depth" crash
+      // caused by Radix ScrollArea / Dialog internally calling setState
+      // inside ref callbacks during the commit phase.
+      '@radix-ui/react-compose-refs': path.resolve(__dirname, './src/lib/compose-refs-fix.ts'),
     },
   },
 })
