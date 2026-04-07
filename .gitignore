@@ -8,3 +8,5 @@ backend/app/__pycache__/
 *.pyc
 images_test/
 images_test - 副本/
+cloudflared.err.log
+cloudflared.out.log

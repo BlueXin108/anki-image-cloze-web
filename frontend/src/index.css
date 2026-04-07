@@ -5,6 +5,20 @@
 
 @custom-variant dark (&:is(.dark *));
 
+@layer components {
+  .trs-all-400 {
+    transition-property: all;
+    transition-timing-function: cubic-bezier(0,.43,0,.99);
+    transition-duration: 400ms;
+  }
+}
+
+html[data-reduce-motion="true"] * {
+  transition-duration: 0ms !important;
+  animation-duration: 0ms !important;
+}
+
+
 :root {
   font-synthesis: none;
   text-rendering: optimizeLegibility;

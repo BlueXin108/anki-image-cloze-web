@@ -7,17 +7,17 @@ export function PipelinePlaceholder() {
   const items = [
     {
       title: '自动识别',
-      description: '后面可以把 OCR 和基础归类慢慢接回来。',
+      description: '以后会在这里提供 OCR 和基础分类，帮助你先做一轮初筛。',
       icon: ScanTextIcon,
     },
     {
       title: '建议遮罩',
-      description: '先预留自动建议入口，等规则稳定后再上线。',
+      description: '以后会在这里给出可参考的遮罩建议，方便你再手动微调。',
       icon: Layers3Icon,
     },
     {
       title: '批量审核',
-      description: '后续再补一套成批检查和确认的节奏。',
+      description: '以后会支持成批查看和确认，减少逐张重复操作。',
       icon: BookOpenCheckIcon,
     },
   ]
@@ -31,16 +31,16 @@ export function PipelinePlaceholder() {
               <WorkflowIcon className="size-5" />
             </div>
             <div className="min-w-0">
-              <CardTitle className="text-lg tracking-tight md:text-xl">流水线区域预留中</CardTitle>
+              <CardTitle className="text-lg tracking-tight md:text-xl">自动处理功能正在规划中</CardTitle>
               <CardDescription className="mt-1 max-w-2xl">
-                这里先保留自动链路的入口位，等手动流程稳定以后，再把识别、建议和批量审核一段段接回来。
+                当前版本先专注把手动处理做好。等后续功能开放后，你可以在这里使用自动识别、建议遮罩和批量检查。
               </CardDescription>
             </div>
           </div>
 
           <Badge variant="outline" className="w-fit rounded-full bg-background/80">
             <Layers3Icon className="size-3.5" />
-            先不和手动流程抢焦点
+            现阶段建议优先使用手动处理
           </Badge>
         </div>
 

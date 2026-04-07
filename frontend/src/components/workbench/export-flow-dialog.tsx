@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   BanIcon,
   CheckCheckIcon,
   CheckIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
+  CircleHelpIcon,
   DownloadIcon,
   ImageIcon,
   ImagesIcon,
@@ -16,10 +17,10 @@ import {
   ZoomInIcon,
   XIcon,
 } from 'lucide-react'
-import { motion } from 'framer-motion'
+import { motion, AnimatePresence } from 'framer-motion'
 import { Dialog as DialogPrimitive } from 'radix-ui'
 
-import type { AnkiConnectionState, DraftListItem, ImageExportFormat, ImportCompressionFormat } from '@/types'
+import type { AnkiConnectionState, CardGenerationMode, DraftListItem, ImageExportFormat } from '@/types'
 import { DeckPicker } from '@/components/workbench/deck-picker'
 import { FocusEditorDialog } from '@/components/workbench/focus-editor-dialog'
 import { InlineEmphasis } from '@/components/workbench/inline-emphasis'
@@ -28,7 +29,7 @@ import { ImageEditor } from '@/components/editor/image-editor'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Dialog, DialogDescription, DialogHeader, DialogOverlay, DialogPortal, DialogTitle } from '@/components/ui/dialog'
+import { Dialog, DialogDescription, DialogHeader, DialogPortal, DialogTitle } from '@/components/ui/dialog'
 import { Field, FieldContent, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { Kbd } from '@/components/ui/kbd'
@@ -36,14 +37,11 @@ import { Progress } from '@/components/ui/progress'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Spinner } from '@/components/ui/spinner'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
-import { groupMasksByCard } from '@/lib/manual-preview'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { countGeneratedCards } from '@/lib/card-generation'
 import { cn } from '@/lib/utils'
 
 type ExportFlowStage = 'review' | 'confirm'
-const DIALOG_LAYOUT_TRANSITION = {
-  duration: 0.45,
-  ease: [0.16, 1, 0.3, 1] as const,
-}
 
 interface ExportFlowDialogProps {
   open: boolean
@@ -62,6 +60,7 @@ interface ExportFlowDialogProps {
   onRefreshDecks: () => void
   onCreateDeck: () => void
   onConfirmCurrent: () => void
+  onPickDeckInBrowser?: (deck: string) => void
   onPrevious: () => void
   onNext: () => void
   onSelectIndex: (index: number) => void
@@ -82,17 +81,29 @@ interface ExportFlowDialogProps {
   imageGroupQuality: number
   onImageGroupFormatChange: (value: ImageExportFormat) => void
   onImageGroupQualityChange: (value: number) => void
-  allowedImageGroupFormats: ImageExportFormat[]
-  importCompressionEnabled: boolean
-  importCompressionFormat: ImportCompressionFormat
+  allowedExportFormats: ImageExportFormat[]
+  exportFormatLockReason: string | null
+  exportFormatSummary: string
   allowDirectAnki: boolean
   deckPickerMode: 'anki' | 'local'
   touchOptimized?: boolean
   onOpenAnkiHelp?: () => void
+  generationMode?: CardGenerationMode
 }
 
 function imageLabel(item: DraftListItem): string {
   return item.image.source_path.split(/[\\/]/).pop() || item.image.source_path
+}
+
+function truncatedImageLabel(item: DraftListItem, maxLength = 42): string {
+  const name = imageLabel(item)
+  if (name.length <= maxLength) return name
+  const extensionIndex = name.lastIndexOf('.')
+  const extension = extensionIndex > 0 ? name.slice(extensionIndex) : ''
+  const baseName = extensionIndex > 0 ? name.slice(0, extensionIndex) : name
+  const headLength = Math.max(10, Math.floor((maxLength - extension.length - 1) * 0.6))
+  const tailLength = Math.max(6, maxLength - extension.length - headLength - 1)
+  return `${baseName.slice(0, headLength)}…${baseName.slice(-tailLength)}${extension}`
 }
 
 function StepRail({
@@ -190,6 +201,58 @@ function SummaryBadge({
   )
 }
 
+function ExportFormatOption({
+  label,
+  value,
+  selected,
+  disabled,
+  reason,
+  onSelect,
+}: {
+  label: string
+  value: ImageExportFormat
+  selected: boolean
+  disabled: boolean
+  reason?: string | null
+  onSelect: (value: ImageExportFormat) => void
+}) {
+  return (
+    <div className="relative flex-1">
+      <button
+        type="button"
+        aria-pressed={selected}
+        disabled={disabled}
+        onClick={() => onSelect(value)}
+        className={cn(
+          'flex h-9 w-full items-center justify-center rounded-md border px-3 text-[11px] font-medium transition',
+          selected
+            ? 'border-foreground bg-foreground text-background'
+            : 'border-border/60 bg-background/75 text-foreground hover:border-foreground/35',
+          disabled && 'cursor-not-allowed border-border/50 bg-muted/30 text-muted-foreground hover:border-border/50',
+        )}
+      >
+        {label}
+      </button>
+      {disabled && reason ? (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              className="absolute top-1/2 right-2 -translate-y-1/2 rounded-full text-muted-foreground/80 trs-all-400 hover:text-foreground"
+              aria-label={`${label} 当前不可选的原因`}
+            >
+              <CircleHelpIcon className="size-3.5" />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side="top" className="max-w-64 text-xs leading-5">
+            {reason}
+          </TooltipContent>
+        </Tooltip>
+      ) : null}
+    </div>
+  )
+}
+
 function ExportQualityPreview({
   item,
   quality,
@@ -206,6 +269,7 @@ function ExportQualityPreview({
   useEffect(() => {
     let cancelled = false
     let nextPreviewUrl: string | null = null
+    setPreviewUrl(null)
 
     const buildPreview = async () => {
       if (!item?.image_blob) {
@@ -257,10 +321,13 @@ function ExportQualityPreview({
       }
     }
 
-    void buildPreview()
+    const timer = window.setTimeout(() => {
+      if (!cancelled) void buildPreview()
+    }, 350)
 
     return () => {
       cancelled = true
+      window.clearTimeout(timer)
       if (nextPreviewUrl) {
         URL.revokeObjectURL(nextPreviewUrl)
       }
@@ -277,16 +344,24 @@ function ExportQualityPreview({
 
   if (!item) return null
 
-  return (
-    <ZoomableImagePreviewCard
-      previewUrl={previewUrl}
-      previewAlt="导出质量预览"
-      title="导出质量预览"
-      description="这里显示当前导出设置下真正会生成的压缩图。"
-      dialogTitle="导出质量大图预览"
-      dialogDescription="这里展示当前导出设置下，最终生成图片的大图效果。"
-      compact={compact}
-    />
+  return previewUrl ? (
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.4, ease: "easeOut" }}>
+      <ZoomableImagePreviewCard
+        previewUrl={previewUrl}
+        previewAlt="导出质量预览"
+        title="导出质量预览"
+        description="这里显示当前导出设置下真正会生成的压缩图。"
+        dialogTitle="导出质量大图预览"
+        dialogDescription="这里展示当前导出设置下，最终生成图片的大图效果。"
+        compact={compact}
+        dialogOverlayClassName="!z-[130]"
+        dialogContentClassName="!z-[131]"
+      />
+    </motion.div>
+  ) : (
+    <div className={cn("flex w-full items-center justify-center rounded-xl", compact ? "h-[88px]" : "h-[120px]")}>
+      <Spinner className="size-5 text-muted-foreground/30" />
+    </div>
   )
 }
 
@@ -373,8 +448,11 @@ function ThumbnailQueue({
                       </div>
                     ) : null}
                   </div>
-                  <div className={cn('mt-1 line-clamp-2 text-muted-foreground', compact ? 'text-[9px]' : 'text-[10px]')}>
-                    {index + 1}. {imageLabel(item)}
+                  <div
+                    className={cn('mt-1 max-w-full truncate text-muted-foreground', compact ? 'text-[9px]' : 'text-[10px]')}
+                    title={item.image.source_path}
+                  >
+                    {index + 1}. {truncatedImageLabel(item, compact ? 20 : 24)}
                   </div>
                 </button>
               )
@@ -396,6 +474,7 @@ function ExportPreviewPane({
   canGoNext,
   touchOptimized = false,
   compact = false,
+  generationMode = 'hide-all-reveal-current',
 }: {
   item: DraftListItem | null
   onMasksCommit: (masks: DraftListItem['draft']['masks']) => Promise<void>
@@ -406,10 +485,9 @@ function ExportPreviewPane({
   canGoNext: boolean
   touchOptimized?: boolean
   compact?: boolean
+  generationMode?: CardGenerationMode
 }) {
   const [focusOpen, setFocusOpen] = useState(false)
-
-  const groups = useMemo(() => (item ? groupMasksByCard(item.draft.masks) : []), [item])
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -433,7 +511,9 @@ function ExportPreviewPane({
           <CardHeader className="gap-2 px-3 py-2.5 bg-muted/5">
             <div className="flex items-center justify-between gap-3">
               <div className="min-w-0 flex-1">
-                <CardTitle className="truncate text-[13px] font-medium leading-relaxed tracking-wide text-foreground/90">{imageLabel(item)}</CardTitle>
+                <CardTitle className="truncate text-[13px] font-medium leading-relaxed tracking-wide text-foreground/90" title={item.image.source_path}>
+                  {truncatedImageLabel(item, 42)}
+                </CardTitle>
                 <CardDescription className="text-[10px] mt-0.5 leading-tight tracking-wider">
                   已做安全预览。详细修改请进入独立编辑层。
                 </CardDescription>
@@ -449,7 +529,7 @@ function ExportPreviewPane({
           open={focusOpen}
           onOpenChange={setFocusOpen}
           item={item}
-          cardCount={groups.length}
+          cardCount={countGeneratedCards(item.draft, generationMode)}
           onMasksCommit={onMasksCommit}
           onCropCommit={onCropCommit}
           onPreviousItem={onPrevious}
@@ -458,8 +538,10 @@ function ExportPreviewPane({
           canGoNext={canGoNext}
           touchOptimized={touchOptimized}
           disableWheelResize={touchOptimized}
+          overlayClassName="!z-[130]"
+          contentClassName="!z-[131]"
           title="聚焦编辑"
-          description="这里会以独立悬浮层打开真正的聚焦编辑，不再只是在原位把图片放大。"
+          description="会打开独立编辑层，方便你更精细地调整裁剪和遮罩。"
         />
       </>
     )
@@ -471,7 +553,7 @@ function ExportPreviewPane({
         <CardHeader className="gap-2 pb-0">
           <div className="flex items-start justify-between gap-3">
             <div className="space-y-1">
-              <CardTitle className="truncate">{imageLabel(item)}</CardTitle>
+              <CardTitle className="truncate" title={item.image.source_path}>{truncatedImageLabel(item, 52)}</CardTitle>
               <CardDescription>左侧独立预览。按 <Kbd>Q</Kbd> 可直接打开聚焦编辑。</CardDescription>
             </div>
             <Button variant="default" size="sm" className="rounded-full shadow-sm" onClick={() => setFocusOpen(true)}>
@@ -512,7 +594,7 @@ function ExportPreviewPane({
         open={focusOpen}
         onOpenChange={setFocusOpen}
         item={item}
-        cardCount={groups.length}
+        cardCount={countGeneratedCards(item.draft, generationMode)}
         onMasksCommit={onMasksCommit}
         onCropCommit={onCropCommit}
         onPreviousItem={onPrevious}
@@ -521,8 +603,10 @@ function ExportPreviewPane({
         canGoNext={canGoNext}
         touchOptimized={touchOptimized}
         disableWheelResize={touchOptimized}
+        overlayClassName="!z-[130]"
+        contentClassName="!z-[131]"
         title="聚焦编辑"
-        description="这里会以独立悬浮层打开真正的聚焦编辑，不再只是在原位把图片放大。"
+        description="会打开独立编辑层，方便你更精细地调整裁剪和遮罩。"
       />
     </>
   )
@@ -545,6 +629,7 @@ export function ExportFlowDialog({
   onRefreshDecks,
   onCreateDeck,
   onConfirmCurrent,
+  onPickDeckInBrowser,
   onPrevious,
   onNext,
   onSelectIndex,
@@ -565,13 +650,14 @@ export function ExportFlowDialog({
   imageGroupQuality,
   onImageGroupFormatChange,
   onImageGroupQualityChange,
-  allowedImageGroupFormats,
-  importCompressionEnabled,
-  importCompressionFormat,
+  allowedExportFormats,
+  exportFormatLockReason,
+  exportFormatSummary,
   allowDirectAnki,
   deckPickerMode,
   touchOptimized = false,
   onOpenAnkiHelp,
+  generationMode = 'hide-all-reveal-current',
 }: ExportFlowDialogProps) {
   const currentItem = queue[currentIndex] ?? null
   const reviewedCount = reviewedDraftIds.length
@@ -616,7 +702,7 @@ export function ExportFlowDialog({
   const apkgHint = isMobileDialog
     ? '会生成 APKG 卡包。下载后可以交给 AnkiDroid 打开。'
     : '会生成 APKG 卡包。下载完成后，直接拖进桌面版 Anki 即可手动导入。'
-  const totalCards = queue.reduce((sum, item) => sum + groupMasksByCard(item.draft.masks).length, 0)
+  const totalCards = queue.reduce((sum, item) => sum + countGeneratedCards(item.draft, generationMode), 0)
   const readyCount = queue.filter((item) => item.draft.deck?.trim()).length
 
   const dialogShellSize =
@@ -649,29 +735,94 @@ export function ExportFlowDialog({
       : activeExportTarget === 'image-group'
         ? isExportingImageGroup
         : isExportingApkg
-  const imageGroupOutputType = imageGroupFormat === 'jpeg' ? 'image/jpeg' : imageGroupFormat === 'png' ? 'image/png' : 'image/webp'
+  const effectiveFormat: ImageExportFormat = allowedExportFormats.includes(imageGroupFormat)
+    ? imageGroupFormat
+    : (allowedExportFormats[0] ?? 'webp')
+  const previewOutputType = effectiveFormat === 'jpeg' ? 'image/jpeg' : effectiveFormat === 'png' ? 'image/png' : 'image/webp'
+  const exportFormatOptions: Array<{ value: ImageExportFormat; label: string }> = [
+    { value: 'webp', label: 'WebP' },
+    { value: 'jpeg', label: 'JPG' },
+    { value: 'png', label: 'PNG' },
+  ]
+  const formatDisabledReason = (format: ImageExportFormat): string | null => {
+    if (allowedExportFormats.includes(format)) {
+      return null
+    }
+    return exportFormatLockReason
+  }
+  const formatSummaryText = exportFormatSummary
+  const qualityValue = activeExportTarget === 'image-group' ? imageGroupQuality : quality
+  const qualityDisabled = effectiveFormat === 'png'
+  const qualityHint =
+    effectiveFormat === 'png'
+      ? 'PNG 为无损格式，这里不需要再调压缩强度。'
+      : activeExportTarget === 'image-group'
+        ? '建议调整后在下方预览里观察清晰度和体积。'
+        : '这会影响最终导入到 Anki 或打进 APKG 里的图片体积。'
+  const qualityCardTitle =
+    activeExportTarget === 'image-group'
+      ? '图像组导出设置'
+      : activeExportTarget === 'anki'
+        ? 'Anki 导出设置'
+        : 'APKG 导出设置'
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogPortal>
-        <DialogOverlay />
-        <DialogPrimitive.Content asChild>
-          <motion.div
-            initial={false}
-            animate={{
-              width: isMobileDialog ? '100%' : dialogShellSize.width,
-              height: isMobileDialog ? '100dvh' : dialogShellSize.height,
-            }}
-            transition={DIALOG_LAYOUT_TRANSITION}
-            className={cn(
-              'fixed z-50 flex flex-col bg-background text-foreground outline-none',
-              isMobileDialog 
-                ? 'top-0 left-0 rounded-none text-[12px]' 
-                : 'top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-xl ring-1 ring-foreground/10 text-sm',
-            )}
-          >
+      <AnimatePresence>
+        {open && (
+          <DialogPortal forceMount>
+            <DialogPrimitive.Overlay asChild forceMount>
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0, pointerEvents: 'none' }}
+                transition={{ duration: 0.35 }}
+                className="fixed inset-0 isolate z-50 bg-black/40 supports-backdrop-filter:backdrop-blur-md"
+              />
+            </DialogPrimitive.Overlay>
+            <DialogPrimitive.Content asChild forceMount>
+              <div 
+                className={cn(
+                  "fixed inset-0 z-[100] flex pointer-events-none",
+                  isMobileDialog ? "items-end" : "items-center justify-center"
+                )}
+              >
+                <motion.div
+                  key="content"
+                  layout={!isMobileDialog}
+                  initial={{ 
+                    opacity: 0, 
+                    y: '100vh',
+                    width: isMobileDialog ? '100%' : dialogShellSize.width,
+                    height: isMobileDialog ? '100%' : dialogShellSize.height,
+                  }}
+                  animate={{ 
+                    opacity: 1, 
+                    y: 0,
+                    width: isMobileDialog ? '100%' : dialogShellSize.width,
+                    height: isMobileDialog ? '100%' : dialogShellSize.height,
+                  }}
+                  exit={{ 
+                    opacity: 0, 
+                    y: '100vh',
+                    pointerEvents: 'none'
+                  }}
+                  transition={{ type: 'tween', duration: 0.4, ease: [0, .43, 0, .99] }}
+                  className={cn(
+                    'flex flex-col bg-background outline-none pointer-events-auto shadow-2xl relative',
+                    isMobileDialog 
+                      ? 'rounded-none w-full' 
+                      : 'rounded-xl ring-1 ring-foreground/10',
+                  )}
+                >
+                  <div
+                    className={cn(
+                      'absolute inset-0 flex flex-col overflow-hidden text-foreground text-sm',
+                      isMobileDialog ? 'rounded-none' : 'rounded-xl'
+                    )}
+                  >
             {/* 1. 固定头部：去掉包裹的冗余 div，直接渲染 Header */}
-            <DialogHeader className={cn('shrink-0 border-b border-border/60 bg-popover', isMobileDialog ? 'px-4 py-3' : 'px-6 py-4')}>
+            <DialogHeader className={cn('shrink-0 border-b border-border/60 bg-popover', isMobileDialog ? 'px-4 py-3' : 'px-6 py-4 mt-2')}>
               <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                 <div className="min-w-0">
                   <DialogTitle className={cn(isMobileDialog && 'text-[15px] font-medium')}>导出当前项目</DialogTitle>
@@ -694,10 +845,19 @@ export function ExportFlowDialog({
             </DialogHeader>
 
             {/* 2. 核心内容滚动区：min-h-0 flex-1 overflow-y-auto */}
-              <div className={cn('min-h-0 flex-1 overflow-y-auto bg-muted/5', isMobileDialog ? 'p-3' : 'p-4 sm:p-6')}>
+              <div className={cn('min-h-0 flex-1 overflow-y-auto overflow-x-hidden bg-muted/5 grid', isMobileDialog ? 'p-3 [&::-webkit-scrollbar]:hidden [scrollbar-width:none]' : 'p-4 sm:p-6')}>
+              <AnimatePresence initial={false}>
               {stage === 'review' ? (
                 // --- 第一阶段：逐张确认 (Review) ---
-                <div className={cn('flex h-auto w-full', isMobileDialog ? 'flex-col gap-3' : 'h-full flex-col gap-5')}>
+                <motion.div 
+                  key="review"
+                  initial={{ opacity: 0, x: isMobileDialog ? 0 : -15, y: isMobileDialog ? 10 : 0 }}
+                  animate={{ opacity: 1, x: 0, y: 0 }}
+                  exit={{ opacity: 0, x: isMobileDialog ? 0 : -15, y: isMobileDialog ? -10 : 0 }}
+                  transition={{ duration: isMobileDialog ? 0.15 : 0.2, ease: [0, .43, 0, .99] }}
+                  style={{ gridArea: '1 / 1' }}
+                  className={cn('flex h-auto w-full', isMobileDialog ? 'flex-col gap-3' : 'h-full flex-col gap-5')}
+                >
                   <div
                     className={cn(
                       isMobileDialog
@@ -716,6 +876,7 @@ export function ExportFlowDialog({
                         canGoNext={currentIndex < queue.length - 1}
                         touchOptimized={touchOptimized}
                         compact={isMobileDialog}
+                        generationMode={generationMode}
                       />
                     )}
 
@@ -755,7 +916,12 @@ export function ExportFlowDialog({
                             compact
                             hideSaveAction
                             embedded
-                            autoSaveOnPick
+                            browserDialogOverlayClassName="!z-[130]"
+                            browserDialogContentClassName="!z-[131]"
+                            onBrowserDeckPick={(deck) => {
+                              onPickDeckInBrowser?.(deck)
+                            }}
+                            closeBrowserOnPick
                           />
                           <div className="h-px bg-border/60 -mx-1" />
                           <FieldGroup>
@@ -789,14 +955,16 @@ export function ExportFlowDialog({
                         </div>
 
                         {/* 额外占位空间，确保键盘出现时标签能被完整推到上方而不被底部固定栏遮挡 */}
-                        {isMobileDialog && keyboardPad && <div className="h-40 shrink-0 pointer-events-none transition-all" />}
+                        {isMobileDialog && keyboardPad && <div className="h-40 shrink-0 pointer-events-none trs-all-400" />}
 
                         {/* PC 端显示的底部按钮（移动端隐藏） */}
                         {!isMobileDialog && (
                           <div className="mt-auto flex flex-wrap items-center justify-between gap-3 pt-2">
                             <div className="flex items-center gap-2 text-sm text-muted-foreground">
                               <Layers3Icon className="size-4" />
-                              <span>{currentItem ? imageLabel(currentItem) : '当前没有可确认图片'}</span>
+                              <span className="max-w-[18rem] truncate" title={currentItem?.image.source_path}>
+                                {currentItem ? truncatedImageLabel(currentItem, 36) : '当前没有可确认图片'}
+                              </span>
                             </div>
 
                             <div className="flex flex-wrap gap-2">
@@ -818,10 +986,18 @@ export function ExportFlowDialog({
                       </CardContent>
                     </Card>
                   </div>
-                </div>
+                </motion.div>
               ) : (
                 // --- 第二阶段：最终导出 (Confirm) ---
-                <div className={cn('flex h-auto w-full justify-center', isMobileDialog ? 'flex-col gap-3' : 'h-full flex-col gap-2')}>
+                <motion.div 
+                  key="export"
+                  initial={{ opacity: 0, x: isMobileDialog ? 0 : 15, y: isMobileDialog ? 10 : 0 }}
+                  animate={{ opacity: 1, x: 0, y: 0 }}
+                  exit={{ opacity: 0, x: isMobileDialog ? 0 : 15, y: isMobileDialog ? -10 : 0 }}
+                  transition={{ duration: isMobileDialog ? 0.15 : 0.2, ease: [0, .43, 0, .99] }}
+                  style={{ gridArea: '1 / 1' }}
+                  className={cn('flex h-auto w-full justify-center', isMobileDialog ? 'flex-col gap-3' : 'h-full flex-col gap-2')}
+                >
                   <Card className={cn('flex w-full max-w-2xl mx-auto flex-col border-border/70 bg-background/94 shadow-none', !isMobileDialog && 'h-full')}>
                     <CardHeader className={cn('gap-3 pb-3', isMobileDialog && 'gap-2 px-4 pt-3 pb-0')}>
                       <div className="mx-auto w-full max-w-md"><StepRail stage={stage} reviewedCount={queue.length} compact={isMobileDialog} /></div>
@@ -874,7 +1050,7 @@ export function ExportFlowDialog({
                             ) : null}
                             <div className={cn('text-[11.5px] mt-1 text-muted-foreground leading-relaxed pl-1', isMobileDialog && 'text-[10px]')}>
                               {allowDirectAnki ? (
-                                <>桌面上可 <InlineEmphasis onClick={onOpenAnkiHelp}>直连 Anki写入</InlineEmphasis>，也可以下卡包。</>
+                                <>桌面上可 <InlineEmphasis onClick={onOpenAnkiHelp}>直连 Anki 写入</InlineEmphasis>，也可以下载卡包或图像组。</>
                               ) : (
                                 <>移动端建议优先生成 <InlineEmphasis hint={apkgHint} touchOptimized={isMobileDialog}>APKG</InlineEmphasis> 卡包导入。</>
                               )}
@@ -884,90 +1060,71 @@ export function ExportFlowDialog({
                         <div className="flex flex-col gap-2 rounded-xl border border-border/50 bg-muted/10 p-3">
                           <div className="flex items-center gap-2 text-[13px] font-medium text-foreground/88">
                             <Settings2Icon className="size-4 text-muted-foreground" />
-                            质量调校
+                            {qualityCardTitle}
                           </div>
-                            {activeExportTarget === 'image-group' ? (
-                              <div className="flex flex-col gap-3">
-                                <div className="flex flex-col gap-3">
-                                    <Field>
-                                      <FieldLabel className="text-[12px] font-medium">
-                                        图像格式
-                                      </FieldLabel>
-                                      <FieldContent>
-                                        <ToggleGroup
-                                          type="single"
-                                          value={imageGroupFormat}
-                                          onValueChange={(value) => {
-                                            if (value === 'webp' || value === 'jpeg' || value === 'png') {
-                                              onImageGroupFormatChange(value)
-                                            }
-                                          }}
-                                          variant="outline"
-                                          spacing={1}
-                                          className="w-full rounded-lg bg-background/70 p-1"
-                                        >
-                                          <ToggleGroupItem value="webp" disabled={!allowedImageGroupFormats.includes('webp')} className="flex-1 justify-center text-[11px]">WebP</ToggleGroupItem>
-                                          <ToggleGroupItem value="jpeg" disabled={!allowedImageGroupFormats.includes('jpeg')} className="flex-1 justify-center text-[11px]">JPG</ToggleGroupItem>
-                                          <ToggleGroupItem value="png" disabled={!allowedImageGroupFormats.includes('png')} className="flex-1 justify-center text-[11px]">PNG</ToggleGroupItem>
-                                        </ToggleGroup>
-                                        <FieldDescription className="text-[11px] mt-1">
-                                          {importCompressionEnabled
-                                            ? importCompressionFormat === 'webp' ? '当前导入已处理成 WebP，图像组优先沿用 WebP。' : '当前导入已处理成 JPG。'
-                                            : '如需保留透明层请选 PNG / WebP。'}
-                                        </FieldDescription>
-                                      </FieldContent>
-                                    </Field>
+                          <div className="flex flex-col gap-3">
+                            <Field>
+                              <FieldLabel className="text-[12px] font-medium">图像格式</FieldLabel>
+                              <FieldContent>
+                                <div className="flex gap-1 rounded-lg bg-background/70 p-1">
+                                  {exportFormatOptions.map((option) => {
+                                    const disabledReason = formatDisabledReason(option.value)
+                                    return (
+                                      <ExportFormatOption
+                                        key={option.value}
+                                        label={option.label}
+                                        value={option.value}
+                                        selected={effectiveFormat === option.value}
+                                        disabled={Boolean(disabledReason)}
+                                        reason={disabledReason}
+                                        onSelect={(value) => onImageGroupFormatChange(value)}
+                                      />
+                                    )
+                                  })}
+                                </div>
+                                <FieldDescription className="mt-1 text-[11px]">
+                                  {formatSummaryText}
+                                </FieldDescription>
+                              </FieldContent>
+                            </Field>
 
-                                    <Field>
-                                      <FieldLabel className="text-[12px] font-medium">质量压缩</FieldLabel>
-                                      <FieldContent>
-                                        <div className="flex flex-col gap-1.5">
-                                          <div className="flex items-center gap-3 rounded-lg border border-border/50 bg-background/55 px-2 py-1.5">
-                                            <input
-                                              type="range"
-                                              min="1"
-                                              max="100"
-                                              value={imageGroupQuality}
-                                              disabled={imageGroupFormat === 'png'}
-                                              onChange={(event) => onImageGroupQualityChange(Number(event.target.value))}
-                                              className="h-1.5 min-w-0 flex-1 appearance-none rounded-full bg-muted accent-foreground [&::-webkit-slider-thumb]:size-3 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-foreground"
-                                            />
-                                            <div className="flex w-7 shrink-0 justify-end text-[12px] font-medium tabular-nums text-foreground/90">
-                                              {imageGroupQuality}%
-                                            </div>
-                                          </div>
-                                          <FieldDescription className="text-[11px]">
-                                            {imageGroupFormat === 'png' ? 'PNG 无损格式忽略此设定。' : '建议调整后在下方查看体积是否理想。'}
-                                          </FieldDescription>
-                                        </div>
-                                      </FieldContent>
-                                    </Field>
-                                </div>
-                                <div className="rounded-xl border border-border/50 bg-background/40 p-1">
-                                  <ExportQualityPreview item={qualityPreviewItem} quality={imageGroupQuality} outputType={imageGroupOutputType} compact />
-                                </div>
-                              </div>
-                            ) : (
-                              <div className="flex flex-col gap-2.5">
+                            <Field>
+                              <FieldLabel className="text-[12px] font-medium">质量压缩</FieldLabel>
+                              <FieldContent>
+                                <div className="flex flex-col gap-1.5">
                                   <div className="flex items-center gap-3 rounded-lg border border-border/50 bg-background/55 px-3 py-2">
-                                    <span className="text-[12px] text-muted-foreground mr-1">压缩比</span>
+                                    <span className="mr-1 text-[12px] text-muted-foreground">压缩比</span>
                                     <input
                                       type="range"
                                       min="1"
                                       max="100"
-                                      value={quality}
-                                      onChange={(event) => onQualityChange(Number(event.target.value))}
+                                      value={qualityValue}
+                                      disabled={qualityDisabled}
+                                      onChange={(event) => {
+                                        const value = Number(event.target.value)
+                                        if (activeExportTarget === 'image-group') {
+                                          onImageGroupQualityChange(value)
+                                          return
+                                        }
+                                        onQualityChange(value)
+                                      }}
                                       className="h-1.5 min-w-0 flex-1 appearance-none rounded-full bg-muted accent-foreground [&::-webkit-slider-thumb]:size-3 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-foreground"
                                     />
                                     <div className="flex w-8 shrink-0 justify-end text-[12px] font-medium tabular-nums text-foreground/90">
-                                      {quality}%
+                                      {qualityValue}%
                                     </div>
                                   </div>
-                                  <div className="rounded-xl border border-border/50 bg-background/40 p-1">
-                                    <ExportQualityPreview item={qualityPreviewItem} quality={quality} outputType="image/webp" compact />
-                                  </div>
-                              </div>
-                            )}
+                                  <FieldDescription className="text-[11px]">
+                                    {qualityHint}
+                                  </FieldDescription>
+                                </div>
+                              </FieldContent>
+                            </Field>
+
+                            <div className="rounded-xl border border-border/50 bg-background/40 p-1">
+                              <ExportQualityPreview item={qualityPreviewItem} quality={qualityValue} outputType={previewOutputType} compact />
+                            </div>
+                          </div>
                         </div>
 
                         {/* PC 端显示的底部导出按钮 */}
@@ -976,7 +1133,7 @@ export function ExportFlowDialog({
                              <div className="flex items-start gap-2 text-xs leading-5 text-muted-foreground/80">
                                <TagIcon className="mt-0.5 size-3.5 shrink-0" />
                                <span>
-                                 {activeExportTarget === 'anki' ? '准备直连写入' : activeExportTarget === 'image-group' ? '准备生成组' : '准备导出'} {queue.length} 张图片
+                                 {activeExportTarget === 'anki' ? '准备直连写入' : activeExportTarget === 'image-group' ? '准备生成图像组' : '准备导出'} {queue.length} 张图片
                                </span>
                              </div>
                              <div className="flex shrink-0 items-center justify-end gap-2">
@@ -984,7 +1141,7 @@ export function ExportFlowDialog({
                                  <ChevronLeftIcon data-icon="inline-start" />
                                  返回上一步
                                </Button>
-                               <Button size="sm" className="trs-all-400 h-9 px-4 font-medium hover:-translate-y-0.5 active:scale-[0.98]" onClick={activeExportAction} disabled={isExporting}>
+                               <Button size="sm" className="trs-all-400 h-9 px-4 border border-transparent font-medium hover:-translate-y-0.5 active:scale-[0.98] hover:bg-background hover:text-primary hover:border-border" onClick={activeExportAction} disabled={isExporting}>
                                  {activeExportBusy ? <Spinner data-icon="inline-start" /> : <DownloadIcon data-icon="inline-start" />}
                                  {activeExportTarget === 'anki' ? '写入 Anki' : activeExportTarget === 'image-group' ? '生成压缩包' : '生成 APKG'}
                                </Button>
@@ -994,15 +1151,25 @@ export function ExportFlowDialog({
                       </div>
                     </CardContent>
                   </Card>
-                </div>
+                </motion.div>
               )}
+              </AnimatePresence>
             </div>
 
             {/* 3. 固定底部：移动端原生固定底栏（告别悬浮遮挡） */}
             {isMobileDialog && (
-              <div className="shrink-0 border-t border-border/50 bg-background/95 p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] shadow-sm z-10 transition-opacity">
+              <div className="shrink-0 border-t border-border/50 bg-background/95 p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] shadow-sm z-10 transition-opacity grid">
+                <AnimatePresence initial={false}>
                 {stage === 'review' ? (
-                  <div className="flex flex-col gap-2.5">
+                  <motion.div 
+                    key="bottom-review"
+                    initial={{ opacity: 0, y: 15 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: 15 }}
+                    transition={{ duration: 0.15, ease: [0, .43, 0, .99] }}
+                    style={{ gridArea: '1 / 1' }}
+                    className="flex flex-col gap-2.5"
+                  >
                     <div className="flex items-center justify-between text-[11px] text-muted-foreground">
                       <div className="flex min-w-0 items-center gap-1.5">
                         <Layers3Icon className="size-3.5 shrink-0 text-amber-500" />
@@ -1013,20 +1180,28 @@ export function ExportFlowDialog({
                       </Badge>
                     </div>
                     <div className="grid grid-cols-3 gap-2">
-                      <Button variant="outline" className="trs-all-400 h-10 rounded-xl px-2 text-[12px] font-medium tracking-wide hover:-translate-y-0.5 active:scale-[0.98]" onClick={onPrevious} disabled={currentIndex === 0}>
+                      <Button variant="outline" className="trs-all-400 h-10 rounded-xl px-2 text-[12px] font-medium tracking-wide hover:-translate-y-0.5 active:scale-95 active:bg-foreground active:text-background" onClick={onPrevious} disabled={currentIndex === 0}>
                         上一张
                       </Button>
-                      <Button variant="outline" className="trs-all-400 h-10 rounded-xl px-2 text-[12px] font-medium tracking-wide hover:-translate-y-0.5 active:scale-[0.98]" onClick={onNext} disabled={currentIndex >= queue.length - 1}>
+                      <Button variant="outline" className="trs-all-400 h-10 rounded-xl px-2 text-[12px] font-medium tracking-wide hover:-translate-y-0.5 active:scale-95 active:bg-foreground active:text-background" onClick={onNext} disabled={currentIndex >= queue.length - 1}>
                         下一张
                       </Button>
-                      <Button className="trs-all-400 h-10 rounded-xl px-2 text-[12px] font-medium tracking-wide bg-foreground text-background hover:-translate-y-0.5 hover:bg-foreground/90 active:scale-[0.98]" onClick={onConfirmCurrent} disabled={!deckInput.trim()}>
+                      <Button className="trs-all-400 h-10 rounded-xl px-2 text-[12px] font-medium tracking-wide bg-foreground text-background hover:-translate-y-0.5 hover:bg-foreground/90 active:scale-95 active:bg-background active:text-foreground active:border active:border-foreground" onClick={onConfirmCurrent} disabled={!deckInput.trim()}>
                         <CheckCheckIcon data-icon="inline-start" className="size-3.5" />
                         确认此图
                       </Button>
                     </div>
-                  </div>
+                  </motion.div>
                 ) : (
-                  <div className="flex flex-col gap-2.5">
+                  <motion.div 
+                    key="bottom-export"
+                    initial={{ opacity: 0, y: 15 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: 15 }}
+                    transition={{ duration: 0.15, ease: [0, .43, 0, .99] }}
+                    style={{ gridArea: '1 / 1' }}
+                    className="flex flex-col gap-2.5"
+                  >
                     <div className="flex items-center justify-between text-[11px] text-muted-foreground">
                       <span className="truncate">下一步：直接生成这批卡片</span>
                       <Badge variant="outline" className="rounded-full px-2 py-0 text-[10px] bg-background">
@@ -1034,17 +1209,18 @@ export function ExportFlowDialog({
                       </Badge>
                     </div>
                     <div className="grid grid-cols-2 gap-2">
-                      <Button variant="outline" className="trs-all-400 h-10 rounded-xl px-3 text-[12px] font-medium tracking-wide hover:-translate-y-0.5 active:scale-[0.98]" onClick={onBackToReview} disabled={isExporting}>
+                      <Button variant="outline" className="trs-all-400 h-10 rounded-xl px-3 text-[12px] font-medium tracking-wide hover:-translate-y-0.5 active:scale-95 active:bg-foreground active:text-background" onClick={onBackToReview} disabled={isExporting}>
                         <ChevronLeftIcon data-icon="inline-start" className="size-3.5" />
                         返回修改
                       </Button>
-                      <Button className="trs-all-400 h-10 rounded-xl px-3 text-[12px] font-medium tracking-wide hover:-translate-y-0.5 active:scale-[0.98]" onClick={activeExportAction} disabled={isExporting}>
+                      <Button className="trs-all-400 h-10 rounded-xl px-3 border border-transparent text-[12px] font-medium tracking-wide hover:-translate-y-0.5 hover:bg-background hover:text-primary hover:border-border active:scale-95 active:bg-background active:text-foreground active:border-foreground" onClick={activeExportAction} disabled={isExporting}>
                         {activeExportBusy ? <Spinner data-icon="inline-start" /> : <DownloadIcon data-icon="inline-start" className="size-3.5" />}
                         {activeExportBusy ? '处理中...' : (activeExportTarget === 'anki' ? '开始导入' : activeExportTarget === 'image-group' ? '生成图像组' : '生成 APKG')}
                       </Button>
                     </div>
-                  </div>
+                  </motion.div>
                 )}
+                </AnimatePresence>
               </div>
             )}
 
@@ -1061,9 +1237,13 @@ export function ExportFlowDialog({
                 </Button>
               </DialogPrimitive.Close>
             ) : null}
-          </motion.div>
-        </DialogPrimitive.Content>
-      </DialogPortal>
+                  </div>
+                </motion.div>
+              </div>
+            </DialogPrimitive.Content>
+          </DialogPortal>
+        )}
+      </AnimatePresence>
     </Dialog>
   )
 }

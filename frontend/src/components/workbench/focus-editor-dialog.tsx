@@ -27,12 +27,15 @@ interface FocusEditorDialogProps {
   nextLabel?: string
   touchOptimized?: boolean
   disableWheelResize?: boolean
+  overlayClassName?: string
+  contentClassName?: string
 }
 
 const focusShortcuts = [
   { key: 'Q', label: '退出聚焦' },
+  { key: 'A / D', label: '切换图片' },
   { key: 'Alt + 拖动', label: '新建遮罩' },
-  { key: 'Del/D', label: '删除选中遮罩' },
+  { key: 'E', label: '删除选中遮罩' },
   { key: 'Ctrl + 点击', label: '多选' },
   { key: 'Ctrl + A', label: '全选' },
   { key: '1-9', label: '快速选中' },
@@ -51,7 +54,7 @@ export function FocusEditorDialog({
   onMasksCommit,
   onCropCommit,
   title = '聚焦编辑',
-  description = '这里只保留图像编辑本身。',
+  description = '这里适合放大图片后精细调整裁剪和遮罩。',
   onPreviousItem,
   onNextItem,
   canGoPrevious = false,
@@ -60,36 +63,20 @@ export function FocusEditorDialog({
   nextLabel = '',
   touchOptimized = false,
   disableWheelResize = false,
+  overlayClassName,
+  contentClassName,
 }: FocusEditorDialogProps) {
   const [mounted, setMounted] = useState(false)
+  const [mobileSessionKey, setMobileSessionKey] = useState(0)
 
   useEffect(() => {
     setMounted(true)
   }, [])
 
   useEffect(() => {
-    if (!open) return
-
-    const onKeyDown = (event: KeyboardEvent) => {
-      const target = event.target
-      if (target instanceof HTMLElement && target.closest('input, textarea, [contenteditable="true"]')) {
-        return
-      }
-
-      if (event.key === 'ArrowLeft' && canGoPrevious) {
-        event.preventDefault()
-        onPreviousItem?.()
-      }
-
-      if (event.key === 'ArrowRight' && canGoNext) {
-        event.preventDefault()
-        onNextItem?.()
-      }
-    }
-
-    window.addEventListener('keydown', onKeyDown)
-    return () => window.removeEventListener('keydown', onKeyDown)
-  }, [canGoNext, canGoPrevious, onNextItem, onPreviousItem, open])
+    if (!touchOptimized || !open) return
+    setMobileSessionKey((current) => current + 1)
+  }, [open, touchOptimized])
 
   if (!item) return null
 
@@ -134,9 +121,11 @@ export function FocusEditorDialog({
       {/* --- 核心修改区结束 --- */}
       <DialogContent 
         showCloseButton={false}
+        overlayClassName={overlayClassName}
         className={cn(
           "flex flex-col p-0 border-none bg-transparent shadow-none overflow-visible !ring-0",
-          touchOptimized ? "h-fit max-h-[96dvh] w-[95vw] !max-w-[95vw]" : "h-[95vh] !w-[90vw] !max-w-[95vw]"
+          touchOptimized ? "h-fit max-h-[96dvh] w-[95vw] !max-w-[95vw]" : "h-[95vh] !w-[90vw] !max-w-[95vw]",
+          contentClassName,
         )}>
         <motion.div
            layout
@@ -160,7 +149,7 @@ export function FocusEditorDialog({
                   <span className="text-primary/70 font-medium">支持双指缩放编辑与两侧切图</span>
                 </>
               ) : (canGoPrevious || canGoNext) ? (
-                <span>左右方向键也可切图</span>
+                <span>A / D 可快速切图</span>
               ) : null}
             </div>
           </div>
@@ -210,12 +199,13 @@ export function FocusEditorDialog({
 
           <AnimatePresence mode="wait" initial={false}>
             <motion.div
-              key={`focus-${item.draft.id}`}
+              layoutId={item ? `editor-view-${item.draft.id}` : undefined}
+              key={touchOptimized ? `focus-mobile-${mobileSessionKey}-${item.draft.id}` : `focus-${item.draft.id}`}
               initial={{ opacity: 0, scale: 0.98 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.98 }}
-              transition={{ duration: 0.25, ease: [0, 0.43, 0, 0.99] }}
-              className={cn("w-full", !touchOptimized && "h-full")}
+              transition={{ duration: 0.35, ease: [0, 0.43, 0, 0.99] }}
+              className={cn("w-full relative", !touchOptimized && "h-full")}
             >
               <ImageEditor
                 draft={item.draft}
@@ -230,6 +220,10 @@ export function FocusEditorDialog({
                 hideMetaBar={!touchOptimized}
                 disableWheelResize={disableWheelResize}
                 touchOptimized={touchOptimized}
+                onPreviousItem={onPreviousItem}
+                onNextItem={onNextItem}
+                canGoPrevious={canGoPrevious}
+                canGoNext={canGoNext}
               />
             </motion.div>
           </AnimatePresence>

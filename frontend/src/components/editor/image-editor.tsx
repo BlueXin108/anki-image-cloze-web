@@ -1,5 +1,6 @@
 import { Fragment, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
-import { CropIcon, PlusIcon, Redo2Icon, RotateCcwIcon, ScanSearchIcon, Trash2Icon, Undo2Icon, EyeIcon, EyeOffIcon } from 'lucide-react'
+import { ChevronLeftIcon, ChevronRightIcon, CropIcon, PlusIcon, Redo2Icon, RotateCcwIcon, ScanSearchIcon, Trash2Icon, Undo2Icon, EyeIcon, EyeOffIcon } from 'lucide-react'
+import { AnimatePresence, motion } from 'framer-motion'
 
 import type { BBox, CardDraft, MaskRect } from '@/types'
 import {
@@ -13,6 +14,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
+import { Kbd } from '@/components/ui/kbd'
 import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
 
@@ -103,6 +105,11 @@ interface ImageEditorProps {
   hideMetaBar?: boolean
   disableWheelResize?: boolean
   touchOptimized?: boolean
+  onPreviousItem?: () => void
+  onNextItem?: () => void
+  canGoPrevious?: boolean
+  canGoNext?: boolean
+  onImageHoverChange?: (hovered: boolean) => void
 }
 
 function resolveDisplayedCrop(draft: CardDraft, imageWidth: number, imageHeight: number): BBox {
@@ -391,6 +398,11 @@ export function ImageEditor({
   readOnly = false,
   disableWheelResize = false,
   touchOptimized: _touchOptimized = false,
+  onPreviousItem,
+  onNextItem,
+  canGoPrevious = false,
+  canGoNext = false,
+  onImageHoverChange,
 }: ImageEditorProps) {
   const normalizedDraftMasks = normalizeMaskGroups(draft.masks)
   const imageRef = useRef<HTMLImageElement | null>(null)
@@ -416,6 +428,7 @@ export function ImageEditor({
   const [showMaskOverlay, setShowMaskOverlay] = useState(true)
   const [sourceImageLoaded, setSourceImageLoaded] = useState(false)
   const [hoveredMaskId, setHoveredMaskId] = useState<string | null>(null)
+  const [imageFrameHovered, setImageFrameHovered] = useState(false)
   const [pointerInsideEditor, setPointerInsideEditor] = useState(false)
   const [resetConfirmOpen, setResetConfirmOpen] = useState(false)
   const [normalViewportWidth, setNormalViewportWidth] = useState<number | null>(null)
@@ -449,6 +462,7 @@ export function ImageEditor({
     selectedMaskIds.length > 1 &&
     selectedGroupIds.length === 1 &&
     masksInGroups(localMasks, selectedGroupIds).length === selectedMaskIds.length
+  const showInlineImageNavigation = !focusLayout && (canGoPrevious || canGoNext)
 
   useEffect(() => {
     setSourceImageLoaded(false)
@@ -716,7 +730,17 @@ export function ImageEditor({
           setShowOcrOverlay((current) => !current)
           return
         }
-        if (event.key.toLowerCase() === 'd' && selectedMaskIds.length > 0) {
+        if (event.key.toLowerCase() === 'a' && canGoPrevious) {
+          event.preventDefault()
+          onPreviousItem?.()
+          return
+        }
+        if (event.key.toLowerCase() === 'd' && canGoNext) {
+          event.preventDefault()
+          onNextItem?.()
+          return
+        }
+        if (event.key.toLowerCase() === 'e' && selectedMaskIds.length > 0) {
           event.preventDefault()
           void removeMasksByIds(selectedMaskIds)
           return
@@ -732,15 +756,11 @@ export function ImageEditor({
         }
         return
       }
-      if ((event.key === 'Delete' || event.key === 'Backspace') && selectedMaskIds.length > 0) {
-        event.preventDefault()
-        void removeMasksByIds(selectedMaskIds)
-      }
     }
 
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [canMergeSelectedMasks, canSplitSelectedMasks, readOnly, selectedMaskIds])
+  }, [canGoNext, canGoPrevious, canMergeSelectedMasks, canSplitSelectedMasks, onNextItem, onPreviousItem, readOnly, selectedMaskIds])
 
   useEffect(() => {
     if (!drag) return
@@ -883,6 +903,7 @@ export function ImageEditor({
 
     window.addEventListener('pointermove', onPointerMove)
     window.addEventListener('pointerup', onPointerUp, { once: true })
+    window.addEventListener('pointercancel', onPointerUp, { once: true })
     return () => {
       if (pointerFrameRef.current !== null && typeof window !== 'undefined') {
         window.cancelAnimationFrame(pointerFrameRef.current)
@@ -890,6 +911,7 @@ export function ImageEditor({
       }
       window.removeEventListener('pointermove', onPointerMove)
       window.removeEventListener('pointerup', onPointerUp)
+      window.removeEventListener('pointercancel', onPointerUp)
     }
   }, [drag, imageHeight, imageWidth, onCropCommit, onMasksCommit])
 
@@ -938,6 +960,8 @@ export function ImageEditor({
       return
     }
 
+    event.preventDefault()
+    event.stopPropagation()
     const maskIds = selectedMaskIds.includes(mask.id) ? selectedMaskIds : [mask.id]
     setSelectedMaskIds(maskIds)
     pushHistorySnapshot()
@@ -1022,8 +1046,6 @@ export function ImageEditor({
       return
     }
 
-    event.preventDefault()
-    event.stopPropagation()
     const maskId = crypto.randomUUID()
     const nextMask: MaskRect = {
       id: maskId,
@@ -1035,8 +1057,10 @@ export function ImageEditor({
       card_group_id: maskId,
       card_order: normalizeMaskGroups(localMasksRef.current).length + 1,
     }
-    pushHistorySnapshot()
+    event.preventDefault()
+    event.stopPropagation()
     const next = normalizeMaskGroups([...localMasksRef.current, nextMask])
+    pushHistorySnapshot()
     setLocalMasks(next)
     localMasksRef.current = next
     setSelectedMaskIds([maskId])
@@ -1132,11 +1156,11 @@ export function ImageEditor({
     if (event.button !== 1) return
     const displaySize = getDisplaySize()
     if (displaySize.width < 2 || displaySize.height < 2) return
-    event.preventDefault()
-    event.stopPropagation()
     const point = clientToImagePoint(event.clientX, event.clientY)
     const hitMask = [...localMasksRef.current].reverse().find((mask) => pointInBox(point, mask.bbox))
     const visitedGroupIds = hitMask ? [maskGroupId(hitMask)] : []
+    event.preventDefault()
+    event.stopPropagation()
     pushHistorySnapshot()
     setDrag({
       kind: 'order-trace',
@@ -1279,7 +1303,17 @@ export function ImageEditor({
       >
         <div className={cn('flex justify-center', focusLayout && 'min-h-full min-w-full items-center justify-center')}>
           <div className={cn('inline-block max-w-full rounded-xl border border-border bg-background/90 shadow-sm', focusLayout && 'overflow-visible')}>
-            <div className="relative inline-block max-w-full align-top">
+            <div
+              className="relative inline-block max-w-full align-top"
+              onPointerEnter={() => {
+                setImageFrameHovered(true)
+                onImageHoverChange?.(true)
+              }}
+              onPointerLeave={() => {
+                setImageFrameHovered(false)
+                onImageHoverChange?.(false)
+              }}
+            >
               {!sourceImageLoaded ? (
                 <div className="absolute inset-0 z-10 flex items-center justify-center rounded-xl bg-background/82 backdrop-blur-[1px]">
                   <div className="flex w-full max-w-[26rem] flex-col gap-3 px-4">
@@ -1297,20 +1331,82 @@ export function ImageEditor({
                 src={sourceImageUrl}
                 alt="Source"
                 decoding="async"
+                draggable={false}
                 className={resolvedImageClassName}
                 onLoad={() => setSourceImageLoaded(true)}
                 onError={() => setSourceImageLoaded(true)}
-                style={
-                  focusLayout
+                style={{
+                  WebkitTouchCallout: 'none',
+                  WebkitUserSelect: 'none',
+                  userSelect: 'none',
+                  ...(focusLayout
                     ? focusImageStyle
                     : normalTargetWidth
                       ? {
                           width: `${normalTargetWidth}px`,
                           maxWidth: '100%',
                         }
-                      : undefined
-                }
+                      : {})
+                }}
               />
+
+              <AnimatePresence initial={false}>
+                {showInlineImageNavigation && (_touchOptimized || imageFrameHovered) ? (
+                  <>
+                    {canGoPrevious ? (
+                      <motion.div
+                        key="inline-nav-prev"
+                        initial={{ opacity: 0, x: -8 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        exit={{ opacity: 0, x: -8 }}
+                        transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
+                        className="absolute left-3 top-1/2 z-30 -translate-y-1/2"
+                      >
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          size="icon"
+                          className="size-10 rounded-full border border-border/70 bg-background/88 shadow-lg backdrop-blur-sm"
+                          onPointerDown={(event) => event.stopPropagation()}
+                          onClick={(event) => {
+                            event.stopPropagation()
+                            onPreviousItem?.()
+                          }}
+                        >
+                          <ChevronLeftIcon className="size-5" />
+                          <span className="sr-only">上一张图片</span>
+                        </Button>
+                      </motion.div>
+                    ) : null}
+
+                    {canGoNext ? (
+                      <motion.div
+                        key="inline-nav-next"
+                        initial={{ opacity: 0, x: 8 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        exit={{ opacity: 0, x: 8 }}
+                        transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
+                        className="absolute right-3 top-1/2 z-30 -translate-y-1/2"
+                      >
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          size="icon"
+                          className="size-10 rounded-full border border-border/70 bg-background/88 shadow-lg backdrop-blur-sm"
+                          onPointerDown={(event) => event.stopPropagation()}
+                          onClick={(event) => {
+                            event.stopPropagation()
+                            onNextItem?.()
+                          }}
+                        >
+                          <ChevronRightIcon className="size-5" />
+                          <span className="sr-only">下一张图片</span>
+                        </Button>
+                      </motion.div>
+                    ) : null}
+                  </>
+                ) : null}
+              </AnimatePresence>
 
               <div
                 className="absolute inset-0"
@@ -1392,6 +1488,7 @@ export function ImageEditor({
                         onPointerDown={(event) => beginMaskMove(event, mask)}
                         onContextMenu={(event) => {
                           event.preventDefault()
+                          event.stopPropagation()
                           void removeMasksByIds([mask.id])
                         }}
                         onPointerEnter={() => setHoveredMaskId(mask.id)}
@@ -1431,21 +1528,28 @@ export function ImageEditor({
                     className="pointer-events-none absolute rounded-md border border-amber-500/70 border-dashed"
                     style={toStyle(selectedGroupBox, imageWidth, imageHeight)}
                   >
-                    {canMergeSelectedMasks || canSplitSelectedMasks ? (
-                      <div className="pointer-events-auto absolute bottom-full left-1/2 mb-2 -translate-x-1/2">
-                       
-                            <Button
-                              type="button"
-                              size="default"
-                              variant="secondary"
-                              className="h-8 rounded-full px-2.5 py-1"
-                              onClick={() => void (canMergeSelectedMasks ? mergeSelectedMasksAsCard() : splitSelectedMasksToCards())}
-                            >
-                              {canMergeSelectedMasks ? '合并为一张卡' : '拆回独立卡片'}
-                            </Button>
-            
-                      </div>
-                    ) : null}
+                    <AnimatePresence initial={false}>
+                      {canMergeSelectedMasks || canSplitSelectedMasks ? (
+                        <motion.div
+                          initial={{ opacity: 0, y: 4 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          exit={{ opacity: 0, y: 4 }}
+                          transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
+                          className="pointer-events-auto absolute bottom-full left-1/2 mb-2 -translate-x-1/2"
+                        >
+                          <Button
+                            type="button"
+                            size="default"
+                            variant="secondary"
+                            className="h-8 rounded-full px-2.5 py-1"
+                            onClick={() => void (canMergeSelectedMasks ? mergeSelectedMasksAsCard() : splitSelectedMasksToCards())}
+                          >
+                            <span>{canMergeSelectedMasks ? '合并为一张卡' : '拆回独立卡片'}</span>
+                            <Kbd className="ml-1.5 px-1.5 py-0 text-[10px] leading-none">Tab</Kbd>
+                          </Button>
+                        </motion.div>
+                      ) : null}
+                    </AnimatePresence>
                     <div className="pointer-events-none absolute left-1/2 top-full mt-1 -translate-x-1/2 rounded-md border border-amber-200/80 bg-amber-50/85 px-1.5 py-0.5 text-[11px] font-medium text-amber-900 shadow-sm">
                       已选 {selectedMaskIds.length}
                     </div>

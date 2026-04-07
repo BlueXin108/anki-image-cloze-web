@@ -1,4 +1,5 @@
-import React, {memo, useState} from "react";
+import React, {Suspense, lazy, memo, useEffect, useState} from "react";
+import { motion, AnimatePresence } from "framer-motion";
 import {
 	BookOpenTextIcon,
 	CheckIcon,
@@ -7,6 +8,7 @@ import {
 	DownloadIcon,
 	EllipsisIcon,
 	FolderUpIcon,
+	ImageDownIcon,
 	MessageCircleQuestionIcon,
 	MonitorIcon,
 	RefreshCcwIcon,
@@ -33,14 +35,19 @@ import {
 	DropdownMenuItem,
 	DropdownMenuLabel,
 	DropdownMenuSeparator,
+	DropdownMenuShortcut,
 	DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {Spinner} from "@/components/ui/spinner";
 import {Tabs, TabsList, TabsTrigger} from "@/components/ui/tabs";
 import {Tooltip, TooltipContent, TooltipTrigger} from "@/components/ui/tooltip";
 import {InlineEmphasis} from "@/components/workbench/inline-emphasis";
-import {AnkiConnectHelpPopover} from "@/components/workbench/anki-connect-help-popover";
 import {cn} from "@/lib/utils";
+
+const LazyAnkiConnectHelpPopover = lazy(async () => {
+	const module = await import("@/components/workbench/anki-connect-help-popover");
+	return {default: module.AnkiConnectHelpPopover};
+});
 
 export type WorkspaceGuideAction =
 	| "upload"
@@ -66,6 +73,7 @@ interface WorkbenchHeaderProps {
 	onImportFolder: () => void;
 	onRestoreProject: () => void;
 	onRefreshAnki: () => void;
+	onOptimizeProject?: () => void;
 	onClearProject: () => void;
 	onExportDeckPoolBackup?: () => void;
 	onImportDeckPoolBackup?: () => void;
@@ -78,6 +86,8 @@ interface WorkbenchHeaderProps {
 	touchOptimized?: boolean;
 	settingsAction?: React.ReactNode;
 	showModeTabs?: boolean;
+	projectCompressionState?: "original" | "compressed" | "mixed" | "none";
+	projectCompressionCount?: number;
 }
 
 // --- 图标组件 ---
@@ -193,6 +203,7 @@ export const WorkbenchHeader = memo(function WorkbenchHeader({
 	onImportFolder,
 	onRestoreProject,
 	onRefreshAnki,
+	onOptimizeProject,
 	onClearProject,
 	onExportDeckPoolBackup,
 	onImportDeckPoolBackup,
@@ -205,8 +216,18 @@ export const WorkbenchHeader = memo(function WorkbenchHeader({
 	touchOptimized = false,
 	settingsAction,
 	showModeTabs = true,
+	projectCompressionState = "none",
+	projectCompressionCount = 0,
 }: WorkbenchHeaderProps) {
 	const [guideOpen, setGuideOpen] = useState(false);
+	const [ankiHelpRequested, setAnkiHelpRequested] = useState(false);
+
+	useEffect(() => {
+		if (ankiHelpOpen) {
+			setAnkiHelpRequested(true);
+		}
+	}, [ankiHelpOpen]);
+
 	const guideOrder: ManualGuideStep[] = showAnkiActions
 		? ["import", "mask", "anki", "export"]
 		: ["import", "mask", "export"];
@@ -259,13 +280,33 @@ export const WorkbenchHeader = memo(function WorkbenchHeader({
 		</>
 	);
 	const pipelineDescription = mobileOptimized
-		? "这里先保留自动化入口，后面再逐步接回批量处理。"
-		: "这里先留入口位，等手动流程稳定后，再把自动识别、建议遮挡和批量审核逐步接回。";
+		? "这里会放后续的自动处理功能。现在请先使用上面的手动处理流程。"
+		: "这里会放后续的自动识别、建议遮罩和批量检查功能；当前版本先把手动处理体验做好。";
 	const showLowerSection = workspaceMode === "pipeline" || guideOpen;
+	const compressionHint =
+		projectCompressionState === "original"
+			? `当前项目还没压缩过${projectCompressionCount > 0 ? `，历史共压缩 ${projectCompressionCount} 次` : ""}`
+			: projectCompressionState === "compressed"
+				? `当前项目已压缩 ${projectCompressionCount} 次`
+				: projectCompressionState === "mixed"
+					? `当前项目里有的图片已压缩${projectCompressionCount > 0 ? `，累计 ${projectCompressionCount} 次` : ""}`
+					: "当前还没有图片";
+	const shouldHighlightOptimizeCurrent =
+		projectCompressionState === "original";
+	const compressionShortcut =
+		projectCompressionState === "compressed"
+			? `已压 ${projectCompressionCount} 次`
+			: projectCompressionState === "original"
+				? projectCompressionCount > 0
+					? `曾压 ${projectCompressionCount} 次`
+					: "推荐"
+				: projectCompressionState === "mixed" && projectCompressionCount > 0
+					? `${projectCompressionCount} 次`
+					: "";
 
 	return (
-		<Card className="overflow-hidden border border-border/70 bg-background/92 shadow-sm">
-			<CardContent className="p-0">
+		<Card className="overflow-hidden border-none bg-white/60 outline-0 ring-0 rounded-md">
+			<CardContent className="px-4">
 				<div
 					className={cn(
 						"relative flex flex-col gap-3 bg-muted/10 px-4 py-3 sm:flex-row sm:items-start sm:justify-between sm:gap-5",
@@ -280,7 +321,7 @@ export const WorkbenchHeader = memo(function WorkbenchHeader({
 								</CardTitle>
 								<Tooltip>
 									<TooltipTrigger asChild>
-										<button type="button" className="cursor-help text-muted-foreground transition hover:text-foreground">
+										<button type="button" className="cursor-help text-muted-foreground trs-all-400 hover:text-foreground">
 											{mobileOptimized ? <SmartphoneIcon className="size-3.5" /> : <MonitorIcon className="size-3.5" />}
 										</button>
 									</TooltipTrigger>
@@ -290,11 +331,33 @@ export const WorkbenchHeader = memo(function WorkbenchHeader({
 								</Tooltip>
 								<div className="h-3 w-px bg-border/70" />
 								{showAnkiActions ? (
-									<AnkiConnectHelpPopover
-										open={ankiHelpOpen}
-										onOpenChange={onAnkiHelpOpenChange}
-										compact
-									/>
+									<>
+										<Button
+											size="sm"
+											variant="ghost"
+											className="h-8 rounded-xl px-2 text-muted-foreground hover:text-foreground"
+											onClick={() => {
+												setAnkiHelpRequested(true);
+												if (onOpenAnkiHelp) onOpenAnkiHelp();
+												else onAnkiHelpOpenChange?.(true);
+											}}
+										>
+											<span className="font-medium text-current">Anki</span>
+											<span className="ml-1 inline-flex items-center justify-center text-current">
+												<MessageCircleQuestionIcon className="size-4" />
+											</span>
+										</Button>
+										{ankiHelpRequested ? (
+											<Suspense fallback={null}>
+												<LazyAnkiConnectHelpPopover
+													open={ankiHelpOpen}
+													onOpenChange={onAnkiHelpOpenChange}
+													compact
+													showTrigger={false}
+												/>
+											</Suspense>
+										) : null}
+									</>
 								) : null}
 								{settingsAction}
 								<DropdownMenu>
@@ -307,20 +370,41 @@ export const WorkbenchHeader = memo(function WorkbenchHeader({
 											<span className="sr-only">更多</span>
 										</Button>
 									</DropdownMenuTrigger>
-									<DropdownMenuContent align="end" className="w-56">
-										<DropdownMenuLabel>更多操作</DropdownMenuLabel>
-										<DropdownMenuGroup>
-											<DropdownMenuItem onSelect={onRestoreProject}>
+										<DropdownMenuContent align="end" className="w-56">
+											<DropdownMenuLabel>更多操作</DropdownMenuLabel>
+											<DropdownMenuGroup>
+												<DropdownMenuItem onSelect={onRestoreProject}>
 												{loadingKey === "restore-project" ? (
 													<Spinner />
 												) : (
 													<RotateCcwIcon />
 												)}
-												恢复上次项目
-											</DropdownMenuItem>
-											{showAnkiActions ? (
-												<DropdownMenuItem onSelect={onRefreshAnki}>
-													{loadingKey === "refresh-anki" ? (
+													恢复上次项目
+												</DropdownMenuItem>
+												<div className="px-2 pb-1 pt-1 text-[11px] leading-5 text-muted-foreground">
+													{compressionHint}
+												</div>
+												<DropdownMenuItem
+													onSelect={onOptimizeProject}
+													disabled={!onOptimizeProject || projectCompressionState === "none"}
+													className={cn(
+														shouldHighlightOptimizeCurrent &&
+															"bg-foreground/8 font-medium text-foreground focus:bg-foreground/12",
+													)}
+												>
+													{loadingKey === "optimize-project" ? (
+														<Spinner />
+													) : (
+														<ImageDownIcon />
+													)}
+													压缩当前所有图片
+													<DropdownMenuShortcut>
+														{compressionShortcut}
+													</DropdownMenuShortcut>
+												</DropdownMenuItem>
+												{showAnkiActions ? (
+													<DropdownMenuItem onSelect={onRefreshAnki}>
+														{loadingKey === "refresh-anki" ? (
 														<Spinner />
 													) : (
 														<RefreshCcwIcon />
@@ -409,7 +493,7 @@ export const WorkbenchHeader = memo(function WorkbenchHeader({
 						<div className="grid grid-cols-2 gap-2">
 							<Button
 								size="default"
-								className="trs-all-400 h-10 min-w-0 rounded-xl px-3 sm:px-4 hover:-translate-y-0.5 active:scale-[0.98]"
+								className="trs-all-400 h-10 min-w-0 rounded-xl px-3 sm:px-4 border border-transparent hover:-translate-y-0.5 active:scale-[0.98] hover:bg-background hover:text-primary hover:border-border"
 								onClick={onUploadImages}>
 								<UploadIcon className="size-4" data-icon="inline-start" />
 								{mobileOptimized ? "系统相册" : "上传图片"}
@@ -417,7 +501,7 @@ export const WorkbenchHeader = memo(function WorkbenchHeader({
 							<Button
 								size="default"
 								variant="secondary"
-								className="trs-all-400 h-10 min-w-0 rounded-xl px-3 sm:px-4 hover:-translate-y-0.5 active:scale-[0.98]"
+								className="trs-all-400 h-10 min-w-0 rounded-xl px-3 sm:px-4 border border-transparent hover:-translate-y-0.5 active:scale-[0.98] hover:bg-foreground hover:text-background hover:border-border"
 								onClick={mobileOptimized ? onImportFiles : onImportFolder}>
 								<FolderUpIcon className="size-4" data-icon="inline-start" />
 								{mobileOptimized ? "文件管理器" : "导入文件夹"}
@@ -438,28 +522,38 @@ export const WorkbenchHeader = memo(function WorkbenchHeader({
 				</div>
 
 				{workspaceMode === "manual" ? (
-					guideOpen ? (
-						<div className="px-4 pb-4 md:px-4 md:pb-3">
-							<div className="relative mt-3 flex flex-col gap-3 rounded-2xl border border-border/70 bg-muted/20 px-4 py-3">
-								<GuideStepper
-									currentGuideIndex={currentGuideIndex}
-									steps={guideSteps}
-								/>
-								<div className="flex items-center gap-2 text-xs text-muted-foreground">
-									<MessageCircleQuestionIcon className="size-3.5 shrink-0" />
-									<span>{manualGuide.hint}</span>
+					<AnimatePresence initial={false}>
+						{guideOpen && (
+							<motion.div
+								initial={{ height: 0, opacity: 0 }}
+								animate={{ height: "auto", opacity: 1 }}
+								exit={{ height: 0, opacity: 0 }}
+								transition={{ duration: 0.3, ease: "easeInOut" }}
+								style={{ overflow: "hidden" }}
+							>
+								<div className="px-4 pb-4 md:px-4 md:pb-3">
+									<div className="relative mt-3 flex flex-col gap-3 rounded-2xl border border-border/70 bg-muted/20 px-4 py-3">
+										<GuideStepper
+											currentGuideIndex={currentGuideIndex}
+											steps={guideSteps}
+										/>
+										<div className="flex items-center gap-2 text-xs text-muted-foreground">
+											<MessageCircleQuestionIcon className="size-3.5 shrink-0" />
+											<span>{manualGuide.hint}</span>
+										</div>
+										<button
+											type="button"
+											aria-label="折叠当前步骤"
+											onClick={() => setGuideOpen(false)}
+											className="trs-all-400 absolute left-1/2 -bottom-2 -translate-x-1/2 rounded-full bg-background/92 px-2 text-muted-foreground/70 hover:scale-105 hover:text-foreground active:scale-[0.94]"
+										>
+											<ChevronUpIcon className="size-3.5" />
+										</button>
+									</div>
 								</div>
-								<button
-									type="button"
-									aria-label="折叠当前步骤"
-									onClick={() => setGuideOpen(false)}
-									className="trs-all-400 absolute left-1/2 -bottom-2 -translate-x-1/2 rounded-full bg-background/92 px-2 text-muted-foreground/70 hover:scale-105 hover:text-foreground active:scale-[0.94]"
-								>
-									<ChevronUpIcon className="size-3.5" />
-								</button>
-							</div>
-						</div>
-					) : null
+							</motion.div>
+						)}
+					</AnimatePresence>
 				) : (
 					<div className="grid gap-3 p-4 md:px-4 md:py-3">
 						<div
@@ -471,7 +565,7 @@ export const WorkbenchHeader = memo(function WorkbenchHeader({
 								variant="outline"
 								className="rounded-full bg-background/80">
 								<WorkflowIcon className="size-3.5" />
-								流水线区域预留中
+								自动处理功能正在规划中
 							</Badge>
 							<span>{pipelineDescription}</span>
 						</div>

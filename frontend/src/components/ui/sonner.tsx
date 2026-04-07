@@ -10,7 +10,7 @@ const Toaster = ({ ...props }: ToasterProps) => {
   return (
     <Sonner
       theme={theme as ToasterProps["theme"]}
-      className="toaster group z-[200]"
+      className="toaster group !z-[260] pointer-events-auto"
       icons={{
         success: (
           <CircleCheckIcon className="size-4" />
@@ -34,12 +34,14 @@ const Toaster = ({ ...props }: ToasterProps) => {
           "--normal-text": "var(--popover-foreground)",
           "--normal-border": "var(--border)",
           "--border-radius": "var(--radius)",
+          zIndex: 260,
+          pointerEvents: "auto",
         } as React.CSSProperties
       }
       toastOptions={{
         classNames: {
-          toast: "cn-toast",
-          closeButton: "cn-toast-close",
+          toast: "cn-toast pointer-events-auto",
+          closeButton: "cn-toast-close pointer-events-auto",
         },
       }}
       {...props}

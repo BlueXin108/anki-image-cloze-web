@@ -14,6 +14,8 @@ export function ZoomableImagePreviewCard({
   dialogDescription,
   compact = false,
   imageClassName,
+  dialogOverlayClassName,
+  dialogContentClassName,
 }: {
   previewUrl: string | null
   previewAlt: string
@@ -23,6 +25,8 @@ export function ZoomableImagePreviewCard({
   dialogDescription: string
   compact?: boolean
   imageClassName?: string
+  dialogOverlayClassName?: string
+  dialogContentClassName?: string
 }) {
   const [previewOpen, setPreviewOpen] = useState(false)
   const [zoom, setZoom] = useState(1)
@@ -108,7 +112,7 @@ export function ZoomableImagePreviewCard({
         {previewUrl ? (
           <button
             type="button"
-            className="group relative overflow-hidden rounded-xl border border-border/60 transition hover:border-border"
+            className="group relative overflow-hidden rounded-xl border border-border/60 trs-all-400 hover:border-border"
             onClick={() => setPreviewOpen(true)}
           >
             <img
@@ -118,8 +122,8 @@ export function ZoomableImagePreviewCard({
               decoding="async"
               className={cn(compact ? 'h-16 w-16' : 'h-20 w-20', imageClassName ?? 'object-cover')}
             />
-            <div className="absolute inset-0 flex items-center justify-center bg-black/0 text-white transition group-hover:bg-black/35">
-              <ZoomInIcon className="size-4 opacity-0 transition group-hover:opacity-100" />
+            <div className="absolute inset-0 flex items-center justify-center bg-black/0 text-white trs-all-400 group-hover:bg-black/35">
+              <ZoomInIcon className="size-4 opacity-0 trs-all-400 group-hover:opacity-100" />
             </div>
           </button>
         ) : (
@@ -142,7 +146,13 @@ export function ZoomableImagePreviewCard({
       </div>
 
       <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
-        <DialogContent className="w-[92vw] max-w-[92vw] overflow-hidden rounded-[1.5rem] border-border/70 bg-background/95 p-0 shadow-2xl sm:w-[64vw] sm:max-w-[64vw] sm:rounded-[1.75rem] md:w-[60vw]">
+        <DialogContent
+          overlayClassName={dialogOverlayClassName}
+          className={cn(
+            "w-[92vw] max-w-[92vw] overflow-hidden rounded-[1.5rem] border-border/70 bg-background/95 p-0 shadow-2xl sm:w-[64vw] sm:max-w-[64vw] sm:rounded-[1.75rem] md:w-[60vw]",
+            dialogContentClassName,
+          )}
+        >
           <DialogHeader className="border-b border-border/60 p-4 sm:px-6 sm:py-4">
             <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
               <div className="min-w-0">
@@ -220,9 +230,11 @@ export function ZoomableImagePreviewCard({
                   transition: dragging ? 'none' : 'transform 120ms ease-out',
                 }}
                 draggable={false}
-                onDoubleClick={() => {
-                  if (zoom > 1) resetPreviewTransform()
-                  else updateZoom(2)
+                onClick={() => {
+                  if (dragging) return
+                  if (zoom === 1) {
+                    updateZoom(2)
+                  }
                 }}
                 onPointerDown={(event) => {
                   if (zoom <= 1) return

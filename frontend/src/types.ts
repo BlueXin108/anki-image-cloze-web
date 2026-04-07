@@ -3,6 +3,8 @@ export type WorkspaceMode = 'pipeline' | 'manual'
 export type DraftReviewStatus = 'draft' | 'imported' | 'packaged'
 export type ImageExportFormat = 'webp' | 'jpeg' | 'png'
 export type ImportCompressionFormat = 'webp' | 'jpeg'
+export type ImageSourceQuality = 'original' | 'import-compressed' | 'project-optimized' | 'legacy-unknown'
+export type CardGenerationMode = 'hide-all-reveal-current' | 'hide-current-only' | 'single-card-toggle'
 
 export interface CropSuggestion {
   bbox: BBox
@@ -44,6 +46,7 @@ export interface ImageItem {
   tags: string[]
   source_url?: string | null
   media_type: string
+  source_quality: ImageSourceQuality
 }
 
 export interface CardDraft {
@@ -81,6 +84,8 @@ export interface WorkbenchSettings {
   importMaxDimension: number
   imageGroupExportFormat: ImageExportFormat
   imageGroupExportQuality: number
+  cardGenerationMode: CardGenerationMode
+  disableAnimations: boolean
 }
 
 export interface PersistedDraftListItem {

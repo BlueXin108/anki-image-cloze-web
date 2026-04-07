@@ -8,6 +8,7 @@ import {
 } from 'lucide-react'
 
 import ankiHelpImage from '@/assets/ankiHelp-1.webp'
+import { CARD_GENERATION_MODE_OPTIONS } from '@/lib/card-generation'
 import type { WorkbenchSettings } from '@/types'
 
 import { Button } from '@/components/ui/button'
@@ -116,12 +117,14 @@ export function WorkbenchSettingsDialog({
   settings,
   onSettingsChange,
   previewBlob,
+  showTrigger = true,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
   settings: WorkbenchSettings
   onSettingsChange: (settings: WorkbenchSettings) => void
   previewBlob?: Blob | null
+  showTrigger?: boolean
 }) {
   const [previewUrl, setPreviewUrl] = useState<string>(ankiHelpImage)
   const [previewInfo, setPreviewInfo] = useState<{
@@ -205,12 +208,14 @@ export function WorkbenchSettingsDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogTrigger asChild>
-        <Button size="icon-sm" variant="ghost" className="trs-all-400 rounded-xl text-muted-foreground hover:-translate-y-0.5 hover:text-foreground active:scale-[0.97]">
-          <Settings2Icon />
-          <span className="sr-only">设置</span>
-        </Button>
-      </DialogTrigger>
+      {showTrigger ? (
+        <DialogTrigger asChild>
+          <Button size="icon-sm" variant="ghost" className="trs-all-400 rounded-xl text-muted-foreground hover:-translate-y-0.5 hover:text-foreground active:scale-[0.97]">
+            <Settings2Icon />
+            <span className="sr-only">设置</span>
+          </Button>
+        </DialogTrigger>
+      ) : null}
       <DialogContent className="w-[min(96vw,48rem)] max-w-[calc(100%-0.75rem)] overflow-hidden rounded-2xl p-0 sm:max-w-[48rem]">
         <DialogHeader className="border-b border-border/70 px-3 py-3 sm:px-4 sm:py-3.5">
           <DialogTitle className="flex items-center gap-2">
@@ -235,7 +240,7 @@ export function WorkbenchSettingsDialog({
                       <div className="flex flex-col gap-2 rounded-2xl border border-border/60 bg-background/75 p-3">
                         <div className="flex items-center justify-between gap-3">
                           <div className="min-w-0 text-[12px] text-muted-foreground">
-                            默认关闭。开启后会先缩放再压缩，减少页面内存占用，但画质会先损一次。
+                            默认开启。开启后会进行尺寸和质量压缩,以减少页面内存占用。画面质量会有轻微损失。
                           </div>
                           <div className="flex shrink-0 items-center justify-end gap-2 text-right">
                             <span className="text-[11px] font-medium text-muted-foreground">{settings.importCompressionEnabled ? '已开启' : '已关闭'}</span>
@@ -317,11 +322,11 @@ export function WorkbenchSettingsDialog({
                 <div className="flex flex-col gap-3">
                   <div className="flex flex-col gap-2 rounded-2xl border border-border/60 bg-background/55 p-3.5 text-[12.5px] leading-relaxed text-muted-foreground sm:text-[13px]">
                     <div className="flex items-center gap-2 font-medium text-foreground/85">
-                      <TriangleAlertIcon className="size-4 text-amber-600" />
-                      压缩警告
+                      <TriangleAlertIcon className="size-4 text-black" />
+                      使用建议
                     </div>
-                    <div>如果大量图片的编辑体验卡顿，请必须开启上方压缩开关、调低质量指标、控制分辨率。</div>
-                    <div>此处的参数仅影响浏览器内渲染，关于卡片最后长什么样（真格的“导出画质”和“导出格式”），请统一下拉至【导出】面板设置。</div>
+                    <div>由于网页端性能限制，使用原始尺寸图片进行编辑可能产生卡顿</div>
+                    <div>此处调整的是预览编辑质量。可在导出页面进行最终质量确认</div>
                   </div>
 
                   <ZoomableImagePreviewCard
@@ -343,6 +348,86 @@ export function WorkbenchSettingsDialog({
                     imageClassName="object-contain bg-background/70"
                   />
                 </div>
+              </CardContent>
+            </Card>
+
+            <Card className="border-border/70 bg-muted/10 shadow-none">
+              <CardHeader className="gap-1.5 px-3 pb-2 pt-3 sm:px-4 sm:pb-2.5 sm:pt-4">
+                <CardTitle className="flex items-center gap-2 text-[13px] font-medium sm:text-sm">
+                  <Settings2Icon className="size-4 text-muted-foreground" />
+                  制卡模式
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="flex flex-col gap-3 px-3 pb-3 sm:px-4 sm:pb-4">
+                <FieldGroup>
+                  <Field>
+                    <FieldLabel className="text-[13px] font-medium">导出时怎样生成卡片</FieldLabel>
+                    <FieldContent>
+                      <div className="flex flex-col gap-2">
+                        {CARD_GENERATION_MODE_OPTIONS.map((option) => {
+                          const active = settings.cardGenerationMode === option.value
+                          return (
+                            <button
+                              key={option.value}
+                              type="button"
+                              onClick={() => onSettingsChange({ ...settings, cardGenerationMode: option.value })}
+                              className={cn(
+                                'w-full rounded-2xl border px-3 py-3 text-left transition',
+                                active
+                                  ? 'border-foreground/80 bg-background text-foreground shadow-sm'
+                                  : 'border-border/60 bg-background/70 text-foreground hover:border-foreground/30',
+                              )}
+                            >
+                              <div className="flex items-start justify-between gap-3">
+                                <div className="space-y-1">
+                                  <div className="text-[13px] font-medium">{option.label}</div>
+                                  <div className="text-[12px] leading-5 text-muted-foreground">{option.description}</div>
+                                </div>
+                                <div
+                                  className={cn(
+                                    'mt-0.5 size-4 rounded-full border',
+                                    active ? 'border-foreground bg-foreground' : 'border-border/70 bg-background',
+                                  )}
+                                />
+                              </div>
+                            </button>
+                          )
+                        })}
+                      </div>
+                    </FieldContent>
+                  </Field>
+                </FieldGroup>
+              </CardContent>
+            </Card>
+
+            <Card className="border-border/70 bg-muted/10 shadow-none">
+              <CardHeader className="gap-1.5 px-3 pb-2 pt-3 sm:px-4 sm:pb-2.5 sm:pt-4">
+                <CardTitle className="flex items-center gap-2 text-[13px] font-medium sm:text-sm">
+                  <MaximizeIcon className="size-4 text-muted-foreground" />
+                  性能与体验
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="flex flex-col gap-3 px-3 pb-3 sm:px-4 sm:pb-4">
+                <FieldGroup>
+                  <Field>
+                    <FieldLabel className="text-[13px] font-medium">禁用流畅动画 (极致性能)</FieldLabel>
+                    <FieldContent>
+                      <div className="flex justify-between items-center gap-3 rounded-2xl border border-border/60 bg-background/75 p-3">
+                        <div className="min-w-0 text-[12px] text-muted-foreground">
+                          关闭所有 Framer Motion 高帧率动画及界面缓动，以节省电池并在配置较低的设备上换取不掉帧的老派响应速度。
+                        </div>
+                        <div className="flex shrink-0 items-center justify-end gap-2 text-right">
+                          <Switch
+                            checked={settings.disableAnimations}
+                            onCheckedChange={(checked) => onSettingsChange({ ...settings, disableAnimations: checked })}
+                            aria-label="禁用流畅动画"
+                            className="trs-all-400 mr-1 scale-125 data-[state=checked]:bg-foreground"
+                          />
+                        </div>
+                      </div>
+                    </FieldContent>
+                  </Field>
+                </FieldGroup>
               </CardContent>
             </Card>
           </div>

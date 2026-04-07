@@ -48,6 +48,35 @@ export function useExportFlow({
     await patchDraft({ draftId, deck, tags })
   }
 
+  const buildDraftEditForIndex = (index: number, overrides?: { deck?: string; tags?: string[] }) => {
+    const currentItem = exportQueue[index]
+    if (!currentItem) return null
+    const nextDeck = (overrides?.deck ?? deckInput).trim()
+    const nextTags = overrides?.tags ?? parseTagInput(tagsInput)
+    const nextEdits = {
+      ...exportDraftEdits,
+      [currentItem.draft.id]: { deck: nextDeck, tags: nextTags },
+    }
+
+    return {
+      currentItem,
+      nextDeck,
+      nextTags,
+      nextEdits,
+    }
+  }
+
+  const saveCurrentExportCardDraft = async (overrides?: { deck?: string; tags?: string[] }) => {
+    const prepared = buildDraftEditForIndex(exportIndex, overrides)
+    if (!prepared) return false
+    if (!prepared.nextDeck) return false
+
+    setExportDraftEdits(prepared.nextEdits)
+    setReviewedDraftIds((current) => [...new Set([...current, prepared.currentItem.draft.id])])
+    await persistDraftEdit(prepared.currentItem.draft.id, prepared.nextDeck, prepared.nextTags)
+    return true
+  }
+
   useEffect(() => {
     return () => {
       if (deferredPersistTimeoutRef.current !== null) {
@@ -105,25 +134,18 @@ export function useExportFlow({
   }
 
   const confirmCurrentExportCard = async () => {
-    const currentItem = exportQueue[exportIndex]
-    if (!currentItem) return
-    const nextDeck = deckInput.trim()
-    const nextTags = parseTagInput(tagsInput)
-    if (!nextDeck) {
+    const prepared = buildDraftEditForIndex(exportIndex)
+    if (!prepared) return
+    if (!prepared.nextDeck) {
       toast.error('请先确认当前卡片的牌组', { description: '这一步必须给当前图片选好牌组，才能继续到下一张。' })
       return
     }
 
-    const nextEdits = {
-      ...exportDraftEdits,
-      [currentItem.draft.id]: { deck: nextDeck, tags: nextTags },
-    }
-
-    setExportDraftEdits(nextEdits)
-    setReviewedDraftIds((current) => [...new Set([...current, currentItem.draft.id])])
+    setExportDraftEdits(prepared.nextEdits)
+    setReviewedDraftIds((current) => [...new Set([...current, prepared.currentItem.draft.id])])
 
     const firstMissingIndex = exportQueue.findIndex((item) => {
-      const edit = nextEdits[item.draft.id]
+      const edit = prepared.nextEdits[item.draft.id]
       return !(edit ? edit.deck : item.draft.deck)?.trim()
     })
 
@@ -131,7 +153,7 @@ export function useExportFlow({
       if (firstMissingIndex !== -1) {
         toast.info('还有图片尚未设置牌组', { description: `已为您定位到第 ${firstMissingIndex + 1} 张图片。` })
         setExportIndex(firstMissingIndex)
-        await persistDraftEdit(currentItem.draft.id, nextDeck, nextTags)
+        await persistDraftEdit(prepared.currentItem.draft.id, prepared.nextDeck, prepared.nextTags)
         return
       }
 
@@ -141,11 +163,11 @@ export function useExportFlow({
       }
       deferredPersistTimeoutRef.current = window.setTimeout(() => {
         deferredPersistTimeoutRef.current = null
-        void persistDraftEdit(currentItem.draft.id, nextDeck, nextTags)
+        void persistDraftEdit(prepared.currentItem.draft.id, prepared.nextDeck, prepared.nextTags)
       }, 320)
       return
     }
-    await persistDraftEdit(currentItem.draft.id, nextDeck, nextTags)
+    await persistDraftEdit(prepared.currentItem.draft.id, prepared.nextDeck, prepared.nextTags)
     setExportIndex((current) => current + 1)
   }
 
@@ -162,6 +184,13 @@ export function useExportFlow({
   const goToExportCard = (index: number) => {
     setExportStage('review')
     setExportIndex(Math.max(0, Math.min(Math.max(0, exportQueue.length - 1), index)))
+  }
+
+  const selectExportCardWithAutoSave = async (index: number) => {
+    if (deckInput.trim()) {
+      await saveCurrentExportCardDraft()
+    }
+    goToExportCard(index)
   }
 
   const exportAllFromFlow = async (destination: ExportDestination) => {
@@ -217,9 +246,11 @@ export function useExportFlow({
     startExportFlow,
     handleExportDialogChange,
     confirmCurrentExportCard,
+    saveCurrentExportCardDraft,
     goToPreviousExportCard,
     goToNextExportCard,
     goToExportCard,
+    selectExportCardWithAutoSave,
     exportAllFromFlow,
   }
 }

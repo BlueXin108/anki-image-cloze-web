@@ -1,13 +1,15 @@
+import { buildGeneratedCardTargets, isInteractiveCardMode } from '@/lib/card-generation'
 import JSZip from 'jszip'
 
-import { groupMasksByCard, renderDraftPreviewSet } from '@/lib/manual-preview'
+import { renderDraftPreviewAssets } from '@/lib/manual-preview'
 import { exportFileExtension, exportMimeType } from '@/lib/workbench-settings'
-import type { DraftListItem, ImageExportFormat } from '@/types'
+import type { CardGenerationMode, DraftListItem, ImageExportFormat } from '@/types'
 
 interface ExportDraftImagesOptions {
   items: DraftListItem[]
   imageFormat: ImageExportFormat
   imageQuality: number
+  generationMode: CardGenerationMode
   packageName?: string
   onProgress?: (progress: {
     completed: number
@@ -18,11 +20,6 @@ interface ExportDraftImagesOptions {
 
 function sanitizeFileName(value: string): string {
   return value.replace(/[\\/:*?"<>|]/g, '-').replace(/\s+/g, '-')
-}
-
-async function dataUrlToBlob(dataUrl: string): Promise<Blob> {
-  const response = await fetch(dataUrl)
-  return response.blob()
 }
 
 export async function exportDraftsAsImageGroup(options: ExportDraftImagesOptions): Promise<{
@@ -37,30 +34,26 @@ export async function exportDraftsAsImageGroup(options: ExportDraftImagesOptions
   const packageName = sanitizeFileName(options.packageName?.trim() || `anki-image-group-${new Date().toISOString().slice(0, 10)}`)
 
   for (const [itemIndex, item] of options.items.entries()) {
-    const groups = groupMasksByCard(item.draft.masks)
+    const targets = buildGeneratedCardTargets(item.draft.masks, options.generationMode)
     const fileBaseName = sanitizeFileName(item.image.source_path.split(/[\\/]/).pop() || item.image.source_path)
 
-    for (const group of groups) {
-      const preview = await renderDraftPreviewSet({
+    for (const target of targets) {
+      const preview = await renderDraftPreviewAssets({
         draft: item.draft,
         sourceUrl: item.image.source_url || '',
         imageWidth: item.image.width,
         imageHeight: item.image.height,
-        selectedGroupId: group.groupId,
+        selectedGroupId: isInteractiveCardMode(options.generationMode) ? null : target.groupId,
+        generationMode: options.generationMode,
         outputType: mimeType,
         outputQuality: imageFormat === 'png' ? undefined : quality,
       })
 
-      if (!preview.frontUrl || !preview.backUrl) continue
+      if (!preview.frontBlob || !preview.backBlob) continue
 
-      const [frontBlob, backBlob] = await Promise.all([
-        dataUrlToBlob(preview.frontUrl),
-        dataUrlToBlob(preview.backUrl),
-      ])
-
-      const prefix = `${fileBaseName}-card-${group.order}`
-      zip.file(`${prefix}-front.${extension}`, frontBlob)
-      zip.file(`${prefix}-back.${extension}`, backBlob)
+      const prefix = `${fileBaseName}-card-${target.order}`
+      zip.file(`${prefix}-front.${extension}`, preview.frontBlob)
+      zip.file(`${prefix}-back.${extension}`, preview.backBlob)
     }
 
     options.onProgress?.({

@@ -62,10 +62,12 @@ export function AnkiConnectHelpPopover({
   open,
   onOpenChange,
   compact = false,
+  showTrigger = true,
 }: {
   open?: boolean
   onOpenChange?: (open: boolean) => void
   compact?: boolean
+  showTrigger?: boolean
 }) {
   const [currentOrigin, setCurrentOrigin] = useState('')
   const [copied, setCopied] = useState(false)
@@ -121,21 +123,23 @@ export function AnkiConnectHelpPopover({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogTrigger asChild>
-        {compact ? (
-          <Button size="sm" variant="ghost" className="h-8 rounded-xl px-2 text-muted-foreground hover:text-foreground">
-            <span className="font-medium text-current">Anki</span>
-            <span className="ml-1 inline-flex items-center justify-center text-current">
-              <CircleHelpIcon className="size-4" />
-            </span>
-          </Button>
-        ) : (
-          <Button size="sm" variant="ghost" className="h-9 rounded-xl px-2.5 text-muted-foreground hover:text-foreground">
-            <span className="font-medium text-current">Anki</span>
-            <CircleHelpIcon className="ml-1 size-4" />
-          </Button>
-        )}
-      </DialogTrigger>
+      {showTrigger ? (
+        <DialogTrigger asChild>
+          {compact ? (
+            <Button size="sm" variant="ghost" className="h-8 rounded-xl px-2 text-muted-foreground hover:text-foreground">
+              <span className="font-medium text-current">Anki</span>
+              <span className="ml-1 inline-flex items-center justify-center text-current">
+                <CircleHelpIcon className="size-4" />
+              </span>
+            </Button>
+          ) : (
+            <Button size="sm" variant="ghost" className="h-9 rounded-xl px-2.5 text-muted-foreground hover:text-foreground">
+              <span className="font-medium text-current">Anki</span>
+              <CircleHelpIcon className="ml-1 size-4" />
+            </Button>
+          )}
+        </DialogTrigger>
+      ) : null}
       <DialogContent
         showCloseButton={false}
         className="w-[min(94vw,44rem)] max-w-[calc(100%-1rem)] gap-0 overflow-hidden rounded-2xl border-border/70 bg-background/95 p-0 shadow-2xl sm:max-w-[44rem]"

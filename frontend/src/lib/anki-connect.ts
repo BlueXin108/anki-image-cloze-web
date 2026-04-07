@@ -1,8 +1,12 @@
+import { buildGeneratedCardTargets, isInteractiveCardMode } from '@/lib/card-generation'
 import { groupMasksByCard, maskGroupId } from '@/lib/manual-preview'
+import { exportFileExtension, exportMimeType } from '@/lib/workbench-settings'
 import type {
   AnkiConnectionCheck,
   AnkiTemplateStatus,
+  CardGenerationMode,
   DraftListItem,
+  ImageExportFormat,
   ManualImportResponse,
   ManualImportResult,
   MaskRect,
@@ -31,8 +35,49 @@ const IOE_FRONT_TEMPLATE = `<div class="card-container">
     <div id="io-overlay">{{Question Mask}}</div>
     <div id="io-original">{{Image}}</div>
   </div>
+  <div class="control-panel">
+    <button id="io-revl-btn" hidden>全部恢复遮罩</button>
+  </div>
   {{#Footer}}<div id="io-footer">{{Footer}}</div>{{/Footer}}
-</div>`
+</div>
+<script>
+  (function() {
+    var wrapper = document.getElementById('io-wrapper');
+    if (!wrapper) return;
+    var hotspots = Array.prototype.slice.call(wrapper.querySelectorAll('.io-hotspot[data-group]'));
+    if (!hotspots.length) return;
+    var resetBtn = document.getElementById('io-revl-btn');
+    var setGroupState = function(groupId, revealed) {
+      hotspots.forEach(function(node) {
+        if (node.getAttribute('data-group') === groupId) {
+          node.classList.toggle('is-revealed', revealed);
+        }
+      });
+    };
+    hotspots.forEach(function(node) {
+      var toggle = function(event) {
+        event.preventDefault();
+        var groupId = node.getAttribute('data-group') || '';
+        var shouldReveal = !node.classList.contains('is-revealed');
+        setGroupState(groupId, shouldReveal);
+      };
+      node.addEventListener('click', toggle);
+      node.addEventListener('keydown', function(event) {
+        if (event.key === 'Enter' || event.key === ' ') {
+          toggle(event);
+        }
+      });
+    });
+    if (resetBtn) {
+      resetBtn.hidden = false;
+      resetBtn.addEventListener('click', function() {
+        hotspots.forEach(function(node) {
+          node.classList.remove('is-revealed');
+        });
+      });
+    }
+  })();
+</script>`
 
 const IOE_BACK_TEMPLATE = `<div class="card-container">
   {{#Header}}<div id="io-header">{{Header}}</div>{{/Header}}
@@ -66,10 +111,50 @@ const IOE_BACK_TEMPLATE = `<div class="card-container">
   </div>
 </div>
 <script>
-  var toggle = function() {
-    var amask = document.getElementById('io-overlay');
-    amask.style.display = (amask.style.display === 'none') ? 'block' : 'none';
-  }
+  (function() {
+    var wrapper = document.getElementById('io-wrapper');
+    if (!wrapper) return;
+    var hotspots = Array.prototype.slice.call(wrapper.querySelectorAll('.io-hotspot[data-group]'));
+    var button = document.getElementById('io-revl-btn');
+    if (hotspots.length) {
+      var setGroupState = function(groupId, revealed) {
+        hotspots.forEach(function(node) {
+          if (node.getAttribute('data-group') === groupId) {
+            node.classList.toggle('is-revealed', revealed);
+          }
+        });
+      };
+      hotspots.forEach(function(node) {
+        var toggleHotspot = function(event) {
+          event.preventDefault();
+          var groupId = node.getAttribute('data-group') || '';
+          var shouldReveal = !node.classList.contains('is-revealed');
+          setGroupState(groupId, shouldReveal);
+        };
+        node.addEventListener('click', toggleHotspot);
+        node.addEventListener('keydown', function(event) {
+          if (event.key === 'Enter' || event.key === ' ') {
+            toggleHotspot(event);
+          }
+        });
+      });
+      if (button) {
+        button.textContent = '全部恢复遮罩';
+        button.onclick = function() {
+          hotspots.forEach(function(node) {
+            node.classList.remove('is-revealed');
+          });
+        };
+      }
+      return;
+    }
+    if (button) {
+      button.onclick = function() {
+        var amask = document.getElementById('io-overlay');
+        amask.style.display = (amask.style.display === 'none') ? 'block' : 'none';
+      };
+    }
+  })();
 </script>`
 
 const IOE_CSS = `/* 全局容器优化 */
@@ -93,6 +178,39 @@ const IOE_CSS = `/* 全局容器优化 */
 
 #io-overlay { position: absolute; top: 0; width: 100%; z-index: 3; }
 #io-original { position: relative; top: 0; width: 100%; z-index: 2; display: block; }
+
+.io-hotspot {
+  position: absolute;
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-end;
+  border: 2px solid rgba(39, 39, 42, 0.8);
+  border-radius: 10px;
+  background: rgba(255,255,255,0.94);
+  box-sizing: border-box;
+  cursor: pointer;
+  transition: background-color 0.18s ease, border-color 0.18s ease;
+}
+
+.io-hotspot.is-revealed {
+  background: rgba(255,255,255,0.08);
+  border-color: rgba(217, 119, 6, 0.98);
+}
+
+.io-hotspot-chip {
+  margin: 4px;
+  min-width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  background: rgba(24,24,27,0.92);
+  color: white;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+}
 
 #io-header {
   font-weight: bold;
@@ -227,8 +345,53 @@ function svgOverlay(
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}" preserveAspectRatio="xMidYMid meet" style="display:block;width:100%;height:auto">${rects}</svg>`
 }
 
-async function blobToWebpBase64(blob: Blob, quality: number): Promise<{ fileName: string; base64: string }> {
-  const imageUrl = URL.createObjectURL(blob)
+function interactiveMaskOverlay(width: number, height: number, masks: MaskRect[]): string {
+  const groups = groupMasksByCard(masks)
+  const orderByGroup = new Map(groups.map((group) => [group.groupId, group.order]))
+  const labelByGroup = new Map(
+    groups.map((group) => [
+      group.groupId,
+      group.masks
+        .map((mask) => mask.label.trim())
+        .filter(Boolean)
+        .join(' / ') || `遮罩 ${group.order}`,
+    ]),
+  )
+
+  return masks
+    .map((mask) => {
+      const groupId = maskGroupId(mask)
+      const order = orderByGroup.get(groupId) ?? 1
+      const title = labelByGroup.get(groupId) ?? `遮罩 ${order}`
+      const [x1, y1, x2, y2] = mask.bbox
+      const left = (x1 / width) * 100
+      const top = (y1 / height) * 100
+      const boxWidth = ((x2 - x1) / width) * 100
+      const boxHeight = ((y2 - y1) / height) * 100
+      return `<button type="button" class="io-hotspot" data-group="${escapeHtml(groupId)}" title="${escapeHtml(title)}" style="left:${left}%;top:${top}%;width:${boxWidth}%;height:${boxHeight}%"><span class="io-hotspot-chip">${order}</span></button>`
+    })
+    .join('')
+}
+
+async function blobToExportBase64(options: {
+  blob: Blob
+  imageFormat: ImageExportFormat
+  quality: number
+}): Promise<{ fileName: string; base64: string }> {
+  const outputType = exportMimeType(options.imageFormat)
+  if (outputType === 'image/png' && options.blob.type === 'image/png') {
+    const bytes = new Uint8Array(await options.blob.arrayBuffer())
+    let binary = ''
+    bytes.forEach((byte) => {
+      binary += String.fromCharCode(byte)
+    })
+    return {
+      fileName: `${crypto.randomUUID()}.${exportFileExtension(options.imageFormat)}`,
+      base64: window.btoa(binary),
+    }
+  }
+
+  const imageUrl = URL.createObjectURL(options.blob)
   try {
     const image = await new Promise<HTMLImageElement>((resolve, reject) => {
       const next = new Image()
@@ -241,24 +404,28 @@ async function blobToWebpBase64(blob: Blob, quality: number): Promise<{ fileName
     canvas.height = image.naturalHeight
     const context = canvas.getContext('2d')
     if (!context) throw new Error('浏览器不支持导出画布。')
+    if (outputType === 'image/jpeg') {
+      context.fillStyle = '#ffffff'
+      context.fillRect(0, 0, canvas.width, canvas.height)
+    }
     context.drawImage(image, 0, 0)
-    const webpBlob = await new Promise<Blob>((resolve, reject) => {
+    const outputBlob = await new Promise<Blob>((resolve, reject) => {
       canvas.toBlob(
         (value) => {
           if (value) resolve(value)
-          else reject(new Error('导出 WebP 失败。'))
+          else reject(new Error('导出图片失败。'))
         },
-        'image/webp',
-        Math.max(0.1, Math.min(1, quality / 100)),
+        outputType,
+        outputType === 'image/png' ? undefined : Math.max(0.1, Math.min(1, options.quality / 100)),
       )
     })
-    const bytes = new Uint8Array(await webpBlob.arrayBuffer())
+    const bytes = new Uint8Array(await outputBlob.arrayBuffer())
     let binary = ''
     bytes.forEach((byte) => {
       binary += String.fromCharCode(byte)
     })
     return {
-      fileName: `${crypto.randomUUID()}.webp`,
+      fileName: `${crypto.randomUUID()}.${exportFileExtension(options.imageFormat)}`,
       base64: window.btoa(binary),
     }
   } finally {
@@ -311,6 +478,26 @@ export async function ensureManualTemplate(): Promise<AnkiTemplateStatus> {
         },
       ],
     })
+  } else {
+    await Promise.all([
+      invokeAnki('updateModelTemplates', {
+        model: {
+          name: activeTemplateName,
+          templates: {
+            'Card 1': {
+              Front: IOE_FRONT_TEMPLATE,
+              Back: IOE_BACK_TEMPLATE,
+            },
+          },
+        },
+      }),
+      invokeAnki('updateModelStyling', {
+        model: {
+          name: activeTemplateName,
+          css: IOE_CSS,
+        },
+      }),
+    ])
   }
   return {
     base_template_name: IOE_BASE_TEMPLATE_NAME,
@@ -330,36 +517,44 @@ function buildManualNotes(options: {
   imageHeight: number
   masks: MaskRect[]
   sourcePath: string
+  generationMode: CardGenerationMode
 }) {
-  const groups = groupMasksByCard(options.masks)
+  const targets = buildGeneratedCardTargets(options.masks, options.generationMode)
+  const interactiveMode = isInteractiveCardMode(options.generationMode)
   const allMasksSvg = svgOverlay(options.imageWidth, options.imageHeight, options.masks)
-  return groups.map((group, index) => {
+  return targets.map((target, index) => {
     const labelSummary =
-      group.masks
+      target.masks
         .map((mask) => mask.label.trim())
         .filter(Boolean)
         .join(' / ') || `卡片 ${index + 1}`
-    const reasonSummary = group.masks
+    const reasonSummary = target.masks
       .map((mask) => mask.reason?.trim())
       .filter(Boolean)
       .join('\n')
     return {
       deckName: options.deckName,
       fields: {
-        ID: `${options.draftId}-${group.order}`,
-        Header: `${options.imageName} · 卡片 ${group.order}`,
+        ID: `${options.draftId}-${interactiveMode ? 'single-card' : target.order}`,
+        Header: interactiveMode ? `${options.imageName} · 整图交互卡` : `${options.imageName} · 卡片 ${target.order}`,
         Image: options.imageHtml,
-        'Question Mask': svgOverlay(options.imageWidth, options.imageHeight, options.masks, {
-          highlightGroupId: group.groupId,
-        }),
+        'Question Mask': interactiveMode
+          ? interactiveMaskOverlay(options.imageWidth, options.imageHeight, options.masks)
+          : svgOverlay(options.imageWidth, options.imageHeight, options.masks, {
+              highlightGroupId: target.groupId,
+            }),
         Footer: options.deckName,
         Remarks: reasonSummary,
         Sources: options.sourcePath,
         'Extra 1': labelSummary,
         'Extra 2': '',
-        'Answer Mask': svgOverlay(options.imageWidth, options.imageHeight, options.masks, {
-          excludeGroupId: group.groupId,
-        }),
+        'Answer Mask': interactiveMode
+          ? interactiveMaskOverlay(options.imageWidth, options.imageHeight, options.masks)
+          : options.generationMode === 'hide-current-only'
+            ? ''
+            : svgOverlay(options.imageWidth, options.imageHeight, options.masks, {
+                excludeGroupId: target.groupId,
+              }),
         'Original Mask': allMasksSvg,
       },
       tags: options.tags,
@@ -370,7 +565,9 @@ function buildManualNotes(options: {
 
 export async function importManualDrafts(payload: {
   items: DraftListItem[]
-  webpQuality: number
+  imageFormat: ImageExportFormat
+  imageQuality: number
+  generationMode: CardGenerationMode
   onProgress?: (progress: {
     completed: number
     total: number
@@ -418,7 +615,11 @@ export async function importManualDrafts(payload: {
 
     try {
       await invokeAnki('createDeck', { deck: item.draft.deck })
-      const encoded = await blobToWebpBase64(item.image_blob, payload.webpQuality)
+      const encoded = await blobToExportBase64({
+        blob: item.image_blob,
+        imageFormat: payload.imageFormat,
+        quality: payload.imageQuality,
+      })
       await invokeAnki('storeMediaFile', {
         filename: encoded.fileName,
         data: encoded.base64,
@@ -434,6 +635,7 @@ export async function importManualDrafts(payload: {
         imageHeight: item.image.height,
         masks: item.draft.masks,
         sourcePath: item.image.source_path,
+        generationMode: payload.generationMode,
       }).map((note) => ({
         ...note,
         modelName: templateStatus.active_template_name,

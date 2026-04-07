@@ -2,6 +2,7 @@ import { memo, useEffect, useMemo, useRef, useState, type ComponentProps } from 
 import {
   AlertTriangleIcon,
   ChevronsUpDownIcon,
+  XIcon,
   DownloadIcon,
   FolderUpIcon,
   RotateCcwIcon,
@@ -26,6 +27,10 @@ export interface StatusTaskState {
   state: StatusTaskStateKind
 }
 
+function isMutedAnkiError(task: Pick<StatusTaskState, 'id' | 'state'>): boolean {
+  return task.id === 'anki' && task.state === 'error'
+}
+
 function statusLabel(state: StatusTaskStateKind): string {
   switch (state) {
     case 'running':
@@ -39,8 +44,12 @@ function statusLabel(state: StatusTaskStateKind): string {
   }
 }
 
-function badgeVariant(state: StatusTaskStateKind): ComponentProps<typeof Badge>['variant'] {
-  switch (state) {
+function badgeVariant(task: Pick<StatusTaskState, 'id' | 'state'>): ComponentProps<typeof Badge>['variant'] {
+  if (isMutedAnkiError(task)) {
+    return 'outline'
+  }
+
+  switch (task.state) {
     case 'success':
       return 'secondary'
     case 'error':
@@ -50,8 +59,12 @@ function badgeVariant(state: StatusTaskStateKind): ComponentProps<typeof Badge>[
   }
 }
 
-function rowClass(state: StatusTaskStateKind): string {
-  switch (state) {
+function rowClass(task: Pick<StatusTaskState, 'id' | 'state'>): string {
+  if (isMutedAnkiError(task)) {
+    return 'border-border/70 bg-muted/25'
+  }
+
+  switch (task.state) {
     case 'running':
       return 'border-amber-300/75 bg-amber-50/92 dark:bg-amber-500/10'
     case 'success':
@@ -63,8 +76,12 @@ function rowClass(state: StatusTaskStateKind): string {
   }
 }
 
-function progressClass(state: StatusTaskStateKind): string {
-  switch (state) {
+function progressClass(task: Pick<StatusTaskState, 'id' | 'state'>): string {
+  if (isMutedAnkiError(task)) {
+    return '[&_[data-slot=progress-indicator]]:bg-muted-foreground/45'
+  }
+
+  switch (task.state) {
     case 'running':
       return '[&_[data-slot=progress-indicator]]:bg-amber-500'
     case 'success':
@@ -77,6 +94,10 @@ function progressClass(state: StatusTaskStateKind): string {
 }
 
 function capsuleToneClass(task: StatusTaskState): string {
+  if (isMutedAnkiError(task)) {
+    return 'border-border/70 bg-muted/60 text-muted-foreground shadow-none'
+  }
+
   switch (task.state) {
     case 'running':
       return 'border-amber-300 bg-amber-100 text-amber-900 shadow-sm dark:bg-amber-900/50 dark:text-amber-400'
@@ -113,6 +134,10 @@ function AnkiGlyphIcon(props: ComponentProps<'svg'>) {
 function taskIcon(task: StatusTaskState) {
   if (task.state === 'running') {
     return <Spinner className="size-3.5" />
+  }
+
+  if (isMutedAnkiError(task)) {
+    return <XIcon className="size-3.5" />
   }
 
   switch (task.id) {
@@ -220,7 +245,7 @@ export const StatusCapsule = memo(function StatusCapsule({
                 key={task.id}
                 className={cn(
                   'rounded-full border px-2.5 py-1.5 shadow-sm shadow-black/5 backdrop-blur-md transition-colors',
-                  rowClass(task.state),
+                  rowClass(task),
                 )}
               >
                 <div className="flex items-center gap-2.5">
@@ -236,7 +261,7 @@ export const StatusCapsule = memo(function StatusCapsule({
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
                       <div className="truncate text-xs font-medium text-foreground">{task.label}</div>
-                      <Badge variant={badgeVariant(task.state)} className="h-4 shrink-0 px-1.5 py-0 text-[10px]">
+                      <Badge variant={badgeVariant(task)} className="h-4 shrink-0 px-1.5 py-0 text-[10px]">
                         {statusLabel(task.state)}
                       </Badge>
                     </div>
@@ -244,7 +269,7 @@ export const StatusCapsule = memo(function StatusCapsule({
                   </div>
 
                   <div className="flex min-w-[5.5rem] items-center gap-2">
-                    <Progress value={task.progress} className={cn('h-1 min-w-0 flex-1', progressClass(task.state))} />
+                    <Progress value={task.progress} className={cn('h-1 min-w-0 flex-1', progressClass(task))} />
                     <div
                       className={cn(
                         'w-8 text-right text-[10px] tabular-nums',
@@ -261,7 +286,7 @@ export const StatusCapsule = memo(function StatusCapsule({
         )}
 
         {/* 底部真正的“胶囊栏” - 移除Card，使用原生div，圆角调整为 rounded-full */}
-        <div className="pointer-events-auto flex items-center gap-1.5 rounded-full border border-border/50 bg-background/70 px-1.5 py-1 shadow-lg shadow-black/5 backdrop-blur-md transition-all hover:bg-background/90 hover:shadow-xl group">
+        <div className="pointer-events-auto flex items-center gap-1.5 rounded-full border border-border/50 bg-background/70 px-1.5 py-1 shadow-lg shadow-black/5 backdrop-blur-md trs-all-400 hover:bg-background/90 hover:shadow-xl group">
           
           {/* 图标叠加区：使用 -space-x-1.5 制造头像组重叠的紧凑视觉，并修复嵌套 button 语意问题 */}
           <div 

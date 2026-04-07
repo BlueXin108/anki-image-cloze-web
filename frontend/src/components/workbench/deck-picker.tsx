@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
   CheckIcon,
   ChevronsUpDownIcon,
@@ -42,6 +42,10 @@ interface DeckPickerProps {
   embedded?: boolean
   mode?: 'anki' | 'local'
   autoSaveOnPick?: boolean
+  browserDialogOverlayClassName?: string
+  browserDialogContentClassName?: string
+  onBrowserDeckPick?: (deck: string) => void
+  closeBrowserOnPick?: boolean
 }
 
 interface DeckTreeNode {
@@ -116,10 +120,21 @@ function statusBadgeVariant(state: AnkiConnectionState['level']) {
       return 'secondary'
     case 'warning':
       return 'outline'
-    case 'error':
-      return 'destructive'
     default:
       return 'outline'
+  }
+}
+
+function statusBadgeClassName(state: AnkiConnectionState['level']) {
+  switch (state) {
+    case 'success':
+      return ''
+    case 'warning':
+      return 'border-amber-300/70 bg-amber-50/80 text-amber-900'
+    case 'error':
+      return 'border-slate-300/80 bg-slate-100/85 text-slate-700'
+    default:
+      return 'border-border/70 bg-muted/15 text-muted-foreground'
   }
 }
 
@@ -227,9 +242,13 @@ function DeckTreeNodeItem({
 function SuggestionList({
   decks,
   onPick,
+  activeIndex,
+  onActiveIndexChange,
 }: {
   decks: string[]
   onPick: (deck: string) => void
+  activeIndex: number
+  onActiveIndexChange: (index: number) => void
 }) {
   if (decks.length === 0) return null
 
@@ -237,7 +256,7 @@ function SuggestionList({
     <div className="absolute bottom-full right-0 left-0 z-50 mb-2 overflow-hidden rounded-2xl border border-border/70 bg-background shadow-lg shadow-black/5">
       <ScrollArea className="max-h-56">
         <div className="flex flex-col gap-1 p-2">
-          {decks.map((deck) => (
+          {decks.map((deck, index) => (
             <button
               key={deck}
               type="button"
@@ -245,7 +264,11 @@ function SuggestionList({
                 event.preventDefault()
                 onPick(deck)
               }}
-              className="flex items-center gap-2 rounded-xl px-3 py-2 text-left text-sm transition hover:bg-muted/40"
+              onMouseEnter={() => onActiveIndexChange(index)}
+              className={cn(
+                'flex items-center gap-2 rounded-xl px-3 py-2 text-left text-sm transition',
+                activeIndex === index ? 'bg-muted/55 text-foreground' : 'hover:bg-muted/40',
+              )}
             >
               <SparklesIcon className="size-4 text-amber-600" />
               <span className="truncate">{deck}</span>
@@ -263,14 +286,27 @@ function DeckNameInput({
   suggestions,
   placeholder,
   onSuggestionPick,
+  onSave,
 }: {
   value: string
   onValueChange: (value: string) => void
   suggestions: string[]
   placeholder: string
   onSuggestionPick?: (value: string) => void
+  onSave?: () => void
 }) {
   const [focused, setFocused] = useState(false)
+  const [activeSuggestionIndex, setActiveSuggestionIndex] = useState(0)
+  const hasSuggestions = focused && suggestions.length > 0
+  const pickSuggestion = (index: number) => {
+    const target = suggestions[index]
+    if (!target) return
+    ;(onSuggestionPick ?? onValueChange)(target)
+  }
+
+  useEffect(() => {
+    setActiveSuggestionIndex(0)
+  }, [suggestions, value])
 
   return (
     <div className="relative">
@@ -282,9 +318,39 @@ function DeckNameInput({
         onBlur={() => {
           window.setTimeout(() => setFocused(false), 80)
         }}
+        onKeyDown={(event) => {
+          if (!hasSuggestions) return
+          if (event.key === 'ArrowDown') {
+            event.preventDefault()
+            setActiveSuggestionIndex((current) => (current + 1) % suggestions.length)
+            return
+          }
+          if (event.key === 'ArrowUp') {
+            event.preventDefault()
+            setActiveSuggestionIndex((current) => (current - 1 + suggestions.length) % suggestions.length)
+            return
+          }
+          if (event.key === 'Tab') {
+            event.preventDefault()
+            pickSuggestion(activeSuggestionIndex)
+            return
+          }
+          if (event.key === 'Enter' && suggestions[activeSuggestionIndex]) {
+            event.preventDefault()
+            pickSuggestion(activeSuggestionIndex)
+            onSave?.()
+          }
+        }}
         placeholder={placeholder}
       />
-      {focused ? <SuggestionList decks={suggestions} onPick={onSuggestionPick ?? onValueChange} /> : null}
+      {focused ? (
+        <SuggestionList
+          decks={suggestions}
+          onPick={onSuggestionPick ?? onValueChange}
+          activeIndex={activeSuggestionIndex}
+          onActiveIndexChange={setActiveSuggestionIndex}
+        />
+      ) : null}
     </div>
   )
 }
@@ -300,7 +366,9 @@ function DeckStatusInline({
 }) {
   return (
     <div className={cn('flex flex-wrap items-center gap-2 text-sm text-muted-foreground', compact && 'text-xs')}>
-      <Badge variant={statusBadgeVariant(ankiState.level)}>{statusLabel(ankiState.level)}</Badge>
+      <Badge variant={statusBadgeVariant(ankiState.level)} className={statusBadgeClassName(ankiState.level)}>
+        {statusLabel(ankiState.level)}
+      </Badge>
       <span>{ankiState.title}</span>
       <span>{deckCount} 个牌组</span>
       {!compact ? <span>最近同步 {formatCheckedAt(ankiState.lastCheckedAt)}</span> : null}
@@ -334,8 +402,13 @@ export function DeckPicker({
   embedded = false,
   mode = 'anki',
   autoSaveOnPick = false,
+  browserDialogOverlayClassName,
+  browserDialogContentClassName,
+  onBrowserDeckPick,
+  closeBrowserOnPick = false,
 }: DeckPickerProps) {
   const [search, setSearch] = useState('')
+  const [browserOpen, setBrowserOpen] = useState(false)
   const isLocalMode = mode === 'local'
   const filteredDecks = useMemo(() => filterDecks(decks, search), [decks, search])
   const treeNodes = useMemo(() => buildDeckTree(filteredDecks), [filteredDecks])
@@ -353,8 +426,16 @@ export function DeckPicker({
     }
   }
 
+  const commitDeckFromBrowser = (deck: string) => {
+    onValueChange(deck)
+    onBrowserDeckPick?.(deck)
+    if (closeBrowserOnPick) {
+      setBrowserOpen(false)
+    }
+  }
+
   const deckBrowser = (
-    <Dialog>
+    <Dialog open={browserOpen} onOpenChange={setBrowserOpen}>
       <DialogTrigger asChild>
         <Button variant="outline" size={embedded || compact ? 'sm' : 'default'}>
           <FolderTreeIcon data-icon="inline-start" />
@@ -362,7 +443,11 @@ export function DeckPicker({
         </Button>
       </DialogTrigger>
       <DialogContent 
-        className="flex h-[88vh] w-[94vw] max-w-[94vw] flex-col overflow-hidden p-0 sm:w-[82vw] sm:max-w-[82vw] lg:w-[72vw] lg:max-w-[72vw] xl:min-w-[60vw] xl:max-w-[68vw]"
+        overlayClassName={browserDialogOverlayClassName}
+        className={cn(
+          "flex h-[88vh] w-[94vw] max-w-[94vw] flex-col overflow-hidden p-0 sm:w-[82vw] sm:max-w-[82vw] lg:w-[72vw] lg:max-w-[72vw] xl:min-w-[60vw] xl:max-w-[68vw]",
+          browserDialogContentClassName,
+        )}
         onOpenAutoFocus={(e) => {
           if (typeof window !== 'undefined' && window.innerWidth < 768) {
             e.preventDefault()
@@ -393,7 +478,8 @@ export function DeckPicker({
               onValueChange={onValueChange}
               suggestions={suggestions}
               placeholder="输入新派组或选中牌组"
-              onSuggestionPick={commitPickedDeck}
+              onSuggestionPick={commitDeckFromBrowser}
+              onSave={onSave}
             />
           </div>
 
@@ -403,7 +489,7 @@ export function DeckPicker({
             <ScrollArea className="h-full">
               <div className="p-3">
                 {treeNodes.length > 0 ? (
-                  <DeckTree nodes={treeNodes} currentDeck={value} onPick={commitPickedDeck} />
+                  <DeckTree nodes={treeNodes} currentDeck={value} onPick={commitDeckFromBrowser} />
                 ) : (
                   <div className="rounded-xl border border-dashed border-border/60 bg-background/85 px-4 py-8 text-sm text-muted-foreground">
                     没有找到匹配牌组。你可以继续输入一个新名称，或者先刷新本机牌组。
@@ -521,6 +607,7 @@ export function DeckPicker({
                 suggestions={suggestions}
                 placeholder="例如 高等数学::导数应用"
                 onSuggestionPick={commitPickedDeck}
+                onSave={onSave}
               />
             </FieldContent>
           </Field>

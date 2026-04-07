@@ -1,6 +1,6 @@
-import { memo, useEffect, useMemo, useState } from 'react'
+import { memo, startTransition, useDeferredValue, useEffect, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { ZoomInIcon } from 'lucide-react'
+import { ImageIcon, ImageDownIcon, ZoomInIcon } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 
 import { ImageEditor } from '@/components/editor/image-editor'
@@ -17,9 +17,10 @@ import {
 import { Kbd } from '@/components/ui/kbd'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Skeleton } from '@/components/ui/skeleton'
+import { countGeneratedCards } from '@/lib/card-generation'
 import { groupMasksByCard, renderDraftPreviewSet } from '@/lib/manual-preview'
 import { cn } from '@/lib/utils'
-import type { CardDraft, DraftListItem, ManualPreviewSet } from '@/types'
+import type { CardDraft, CardGenerationMode, DraftListItem, ManualPreviewSet } from '@/types'
 
 interface ManualWorkspaceProps {
   selectedItem: DraftListItem | null
@@ -33,11 +34,14 @@ interface ManualWorkspaceProps {
   onNextItem?: () => void
   canGoPrevious?: boolean
   canGoNext?: boolean
+  isGlobalDragActive?: boolean
+  generationMode?: CardGenerationMode
 }
 
 // 提取你提供的完整快捷键清单
 const EDITOR_SHORTCUTS = [
   { key: 'Alt + 拖动', action: '新建遮罩' },
+  { key: 'A / D', action: '切换图片' },
   { key: 'Ctrl + 点击', action: '多选' },
   { key: 'Ctrl + A', action: '全选' },
   { key: '1-9', action: '快速选中' },
@@ -46,8 +50,140 @@ const EDITOR_SHORTCUTS = [
   { key: 'Ctrl + Z/Y', action: '撤回重做' },
   { key: 'V', action: '显隐遮罩' },
   { key: 'R', action: '显隐 OCR' },
-  { key: 'Del', action: '删除选中' },
+  { key: 'E', action: '删除选中' },
 ]
+
+const PREVIEW_PANEL_HEIGHT_CLASS = 'h-[320px] sm:h-[360px] lg:h-[380px]'
+
+const PreviewPanel = memo(function PreviewPanel({
+  title,
+  description,
+  imageUrl,
+  loading,
+  emptyTitle,
+  emptyDescription,
+  onOpen,
+  onImageLoadedChange,
+  alt,
+  touchOptimized,
+}: {
+  title: string
+  description: string
+  imageUrl: string | null
+  loading: boolean
+  emptyTitle: string
+  emptyDescription: string
+  onOpen: () => void
+  onImageLoadedChange: (loaded: boolean) => void
+  alt: string
+  touchOptimized: boolean
+}) {
+  const [displayedImageUrl, setDisplayedImageUrl] = useState<string | null>(imageUrl)
+  const [isSwitchingImage, setIsSwitchingImage] = useState(false)
+  const showImage = Boolean(displayedImageUrl)
+
+  useEffect(() => {
+    if (!imageUrl) {
+      setDisplayedImageUrl(null)
+      setIsSwitchingImage(false)
+      return
+    }
+    if (imageUrl === displayedImageUrl) {
+      return
+    }
+
+    let cancelled = false
+    const next = new Image()
+    setIsSwitchingImage(true)
+    next.onload = () => {
+      if (cancelled) return
+      setDisplayedImageUrl(imageUrl)
+      setIsSwitchingImage(false)
+      onImageLoadedChange(true)
+    }
+    next.onerror = () => {
+      if (cancelled) return
+      setDisplayedImageUrl(imageUrl)
+      setIsSwitchingImage(false)
+      onImageLoadedChange(true)
+    }
+    next.src = imageUrl
+
+    return () => {
+      cancelled = true
+    }
+  }, [displayedImageUrl, imageUrl, onImageLoadedChange])
+
+  return (
+    <Card className="border-border/70 bg-background/80">
+      <CardHeader className={cn(touchOptimized && 'pb-2')}>
+        <CardTitle className={cn(touchOptimized && 'text-[14px]')}>{title}</CardTitle>
+        {!touchOptimized ? <CardDescription>{description}</CardDescription> : null}
+      </CardHeader>
+      <CardContent className="min-h-[260px]">
+        <div className={cn("relative w-full rounded-xl overflow-hidden", PREVIEW_PANEL_HEIGHT_CLASS)}>
+          <AnimatePresence>
+            {showImage ? (
+              <motion.button
+                key={displayedImageUrl}
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.22, ease: 'easeInOut' }}
+                type="button"
+                onClick={onOpen}
+                className="absolute inset-0 z-10 flex w-full items-center justify-center border border-border bg-muted/20 text-left trs-all-400 hover:border-primary/40"
+              >
+                <img
+                  src={displayedImageUrl ?? undefined}
+                  alt={alt}
+                  loading="lazy"
+                  decoding="async"
+                  className="h-full w-full cursor-zoom-in object-contain"
+                  onLoad={() => onImageLoadedChange(true)}
+                  onError={() => onImageLoadedChange(true)}
+                />
+                {loading || isSwitchingImage ? (
+                  <div className="pointer-events-none absolute right-3 top-3 rounded-full border border-border/70 bg-background/92 px-2.5 py-1 text-[11px] text-muted-foreground shadow-sm">
+                    正在更新预览
+                  </div>
+                ) : null}
+              </motion.button>
+            ) : loading ? (
+              <motion.div
+                key="loading"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.3, ease: 'easeInOut' }}
+                className="absolute inset-0 z-[5] flex flex-col justify-center gap-3 bg-background"
+              >
+                <Skeleton className="h-5 w-28 rounded-full" />
+                <Skeleton className="h-full w-full rounded-2xl" />
+              </motion.div>
+            ) : (
+              <motion.div
+                key="empty"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.3, ease: 'easeInOut' }}
+                className="absolute inset-0 z-0 bg-background"
+              >
+                <Empty className="h-full border-border bg-muted/30">
+                  <EmptyHeader>
+                    <EmptyTitle>{emptyTitle}</EmptyTitle>
+                    <EmptyDescription>{emptyDescription}</EmptyDescription>
+                  </EmptyHeader>
+                </Empty>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
+      </CardContent>
+    </Card>
+  )
+})
 
 export const ManualWorkspace = memo(function ManualWorkspace({
   selectedItem,
@@ -61,6 +197,8 @@ export const ManualWorkspace = memo(function ManualWorkspace({
   onNextItem,
   canGoPrevious = false,
   canGoNext = false,
+  isGlobalDragActive = false,
+  generationMode = 'hide-all-reveal-current',
 }: ManualWorkspaceProps) {
   const [previewOpen, setPreviewOpen] = useState(false)
   const [previewTitle, setPreviewTitle] = useState('')
@@ -70,7 +208,6 @@ export const ManualWorkspace = memo(function ManualWorkspace({
   const [previewGroupId, setPreviewGroupId] = useState<string | null>(null)
   const [previewSet, setPreviewSet] = useState<ManualPreviewSet>({ frontUrl: null, backUrl: null })
   const [previewLoading, setPreviewLoading] = useState(false)
-  const [previewImageLoaded, setPreviewImageLoaded] = useState({ front: false, back: false })
   
   // Hover 状态控制与 Portal 挂载状态
   const [isEditorHovered, setIsEditorHovered] = useState(false)
@@ -89,6 +226,8 @@ export const ManualWorkspace = memo(function ManualWorkspace({
     () => (selectedItem ? groupMasksByCard(selectedItem.draft.masks) : []),
     [selectedItem],
   )
+  const deferredSelectedItem = useDeferredValue(selectedItem)
+  const deferredPreviewGroupId = useDeferredValue(previewGroupId)
 
   useEffect(() => {
     if (!focusShortcutEnabled) return
@@ -123,27 +262,27 @@ export const ManualWorkspace = memo(function ManualWorkspace({
   }, [groupedCardMasks, selectedItem])
 
   useEffect(() => {
-    setPreviewImageLoaded({ front: false, back: false })
-  }, [previewSet.frontUrl, previewSet.backUrl, selectedItem?.draft.id, previewGroupId])
-
-  useEffect(() => {
     let cancelled = false
-    if (!selectedItem?.image.source_url) {
+    if (!deferredSelectedItem?.image.source_url) {
       setPreviewSet({ frontUrl: null, backUrl: null })
+      setPreviewLoading(false)
       return
     }
 
     setPreviewLoading(true)
     void renderDraftPreviewSet({
-      draft: selectedItem.draft,
-      sourceUrl: selectedItem.image.source_url,
-      imageWidth: selectedItem.image.width,
-      imageHeight: selectedItem.image.height,
-      selectedGroupId: previewGroupId,
+      draft: deferredSelectedItem.draft,
+      sourceUrl: deferredSelectedItem.image.source_url,
+      imageWidth: deferredSelectedItem.image.width,
+      imageHeight: deferredSelectedItem.image.height,
+      selectedGroupId: deferredPreviewGroupId,
+      generationMode,
     })
       .then((next) => {
         if (!cancelled) {
-          setPreviewSet(next)
+          startTransition(() => {
+            setPreviewSet(next)
+          })
         }
       })
       .catch(() => {
@@ -160,22 +299,45 @@ export const ManualWorkspace = memo(function ManualWorkspace({
     return () => {
       cancelled = true
     }
-  }, [previewGroupId, selectedItem])
+  }, [deferredPreviewGroupId, deferredSelectedItem, generationMode])
 
   if (!selectedItem) {
     return (
       <div className="flex h-full items-center justify-center p-6">
-        <Empty className="max-w-xl border-border bg-muted/20">
+        <Empty 
+          className={cn(
+            "max-w-xl trs-all-400", 
+            isGlobalDragActive 
+              ? "border-4 border-primary/50 bg-primary/5 scale-110 h-[50%]" 
+              : "border-2 border-border border-dashed bg-muted/20 h-[35%]"
+          )}
+        >
           <EmptyHeader>
-            <EmptyTitle>等待导入图片</EmptyTitle>
-            <EmptyDescription>{touchOptimized ? '先从顶部上传图片或导入文件夹，然后在上方图片区选一张图继续。' : '先从顶部上传图片或导入文件夹，然后在左侧选一张图开始编辑。'}</EmptyDescription>
+            <div className="mb-4 flex flex-col items-center justify-center text-muted-foreground/60">
+              {isGlobalDragActive ? (
+                <ImageDownIcon className="size-20 text-primary trs-all-400" />
+              ) : (
+                <ImageIcon className="size-14 trs-all-400" />
+              )}
+            </div>
+            {isGlobalDragActive ? (
+              <>
+                <EmptyTitle>松手后导入</EmptyTitle>
+                <EmptyDescription>支持拖入单张、多张图片或整个文件夹</EmptyDescription>
+              </>
+            ) : (
+              <>
+                <EmptyTitle>等待导入图片</EmptyTitle>
+                <EmptyDescription>{touchOptimized ? '先从顶部上传图片或导入文件夹，然后在上方图片区选一张图继续。' : '先从顶部上传图片或导入文件夹，然后在左侧选一张图开始编辑。'}</EmptyDescription>
+              </>
+            )}
           </EmptyHeader>
         </Empty>
       </div>
     )
   }
 
-  const expectedCardCount = groupedCardMasks.length
+  const expectedCardCount = countGeneratedCards(selectedItem.draft, generationMode)
 
   const openPreview = (title: string, description: string, imageUrl: string | null) => {
     if (!imageUrl) return
@@ -191,21 +353,16 @@ export const ManualWorkspace = memo(function ManualWorkspace({
         'relative w-full transition-[transform,box-shadow,filter] duration-300 brightness-95',
         !touchOptimized && isEditorHovered && !focusMode && 'z-10 brightness-100  drop-shadow-[10px_0px_2px_rgba(24,18,8,0.04)]',
       )}
-      onMouseEnter={() => {
-        if (!touchOptimized) setIsEditorHovered(true)
-      }}
-      onMouseLeave={() => {
-        if (!touchOptimized) setIsEditorHovered(false)
-      }}
     >
       <AnimatePresence mode="wait" initial={false}>
         <motion.div
+           layoutId={`editor-view-${selectedItem.draft.id}`}
            key={`manual-${mode}-${selectedItem.draft.id}`}
            initial={{ opacity: 0, scale: 0.98 }}
            animate={{ opacity: 1, scale: 1 }}
            exit={{ opacity: 0, scale: 0.98 }}
-           transition={{ duration: 0.25, ease: [0, 0.43, 0, 0.99] }}
-           className="w-full"
+           transition={{ duration: 0.35, ease: [0, 0.43, 0, 0.99] }}
+           className="w-full h-full relative"
         >
           <ImageEditor
             draft={selectedItem.draft}
@@ -222,6 +379,13 @@ export const ManualWorkspace = memo(function ManualWorkspace({
             readOnly={readOnlyInWorkspace && mode === 'normal'}
             disableWheelResize={touchOptimized}
             touchOptimized={touchOptimized && mode === 'focus'}
+            onPreviousItem={onPreviousItem}
+            onNextItem={onNextItem}
+            canGoPrevious={canGoPrevious}
+            canGoNext={canGoNext}
+            onImageHoverChange={(hovered) => {
+              if (!touchOptimized && mode === 'normal') setIsEditorHovered(hovered)
+            }}
           />
         </motion.div>
       </AnimatePresence>
@@ -241,7 +405,7 @@ export const ManualWorkspace = memo(function ManualWorkspace({
           className={cn(
             // 1. 定位与整体布局：固定在屏幕左侧，占满高度，改为顶对齐 (items-start)
             // px-6 控制整体左侧间距，pt-10 控制顶部间距
-            'pointer-events-none fixed inset-y-0 left-0 z-[99999] flex flex-col items-start  pt-20 px-15 transition-all duration-300',
+            'pointer-events-none fixed inset-y-0 left-0 z-[99999] flex flex-col items-start pt-20 px-15 trs-all-400',
             // 2. 渐变背景：从左到右 (to-r)，由白变透明。
             // pr-24 控制白色渐变背景的宽度，确保其涵盖最长的文字
             'bg-gradient-to-r from-white/100 via-white/98 pr-50 to-transparent',
@@ -293,7 +457,7 @@ export const ManualWorkspace = memo(function ManualWorkspace({
                       <CardDescription>
                         {readOnlyInWorkspace
                           ? '当前页先只做预览，进入聚焦编辑后再拖动遮罩，能更稳地避开移动端误触。'
-                          : '这里只保留裁剪、遮罩、分组与制卡需要的核心动作，彻底脱离后端工作流。'}
+                          : '你可以在这里直接完成裁剪、遮罩、分组和制卡预览，整个过程都在当前浏览器里完成。'}
                       </CardDescription>
                     )}
                   </div>
@@ -328,25 +492,50 @@ export const ManualWorkspace = memo(function ManualWorkspace({
                 {groupedCardMasks.length > 0 ? (
                   <div className="flex flex-wrap gap-2">
                     {groupedCardMasks.map((group, index) => {
-                      const isCombined = group.masks.length > 1;
+                      const isCombined = group.masks.length > 1
+                      const isActive = group.groupId === previewGroupId
                       return (
-                        <button
+                        <motion.button
                           key={group.groupId}
                           type="button"
                           onClick={() => setPreviewGroupId(group.groupId)}
                           className={cn(
-                            "relative flex flex-col items-center justify-center min-w-[4.5rem] rounded-xl border px-3 py-2 transition shadow-sm",
-                            group.groupId === previewGroupId
-                              ? 'border-amber-300/90 bg-amber-100/60 ring-1 ring-amber-300/30'
-                              : 'border-border/60 bg-muted/20 hover:border-primary/40'
+                            'relative inline-flex h-11 overflow-hidden rounded-md border text-sm shadow-sm transition-colors duration-200',
+                            isActive
+                              ? 'border-transparent text-white'
+                              : 'border-black/20 bg-white text-black hover:border-black/50 hover:bg-muted/30',
                           )}
                         >
-                          <span className={cn("text-xs font-semibold", group.groupId === previewGroupId ? "text-amber-900" : "text-foreground/80")}>挖空 {index + 1}</span>
-                          {isCombined && (
-                            <span className="absolute top-1.5 right-1.5 size-1.5 rounded-full bg-amber-400 shadow-sm" title="此为组合挖空" />
+                          {isActive && (
+                            <motion.div
+                              layoutId="activeMaskGroupBackground"
+                              className="absolute inset-0 z-0 bg-black"
+                              initial={false}
+                              transition={{
+                                type: 'spring',
+                                bounce: 0.15,
+                                duration: 0.5,
+                              }}
+                            />
                           )}
-                        </button>
-                      );
+                          <span className={cn('relative z-10 flex h-full items-center px-4 font-semibold tracking-[0.02em]', isCombined ? 'pr-3' : 'pr-4')}>
+                            挖空{index + 1}
+                          </span>
+                          {isCombined && (
+                            <span
+                              className={cn(
+                                'relative z-10 flex h-full items-center justify-center border-l px-2 text-[11px] font-medium leading-tight transition-colors duration-200',
+                                isActive
+                                  ? 'border-white/20 text-white'
+                                  : 'border-black/20 text-white bg-black',
+                              )}
+                              title="这一组遮罩会合并成一张卡"
+                            >
+                              组<br />合
+                            </span>
+                          )}
+                        </motion.button>
+                      )
                     })}
                   </div>
                 ) : (
@@ -361,83 +550,43 @@ export const ManualWorkspace = memo(function ManualWorkspace({
             </Card>
 
             <div className={cn('grid gap-4 xl:grid-cols-2 transition-[opacity,filter] duration-200', !touchOptimized && isEditorHovered && 'opacity-45 saturate-75')}>
-              <Card className="border-border/70 bg-background/80">
-                <CardHeader className={cn(touchOptimized && "pb-2")}>
-                  <CardTitle className={cn(touchOptimized && "text-[14px]")}>问题面预览</CardTitle>
-                  {!touchOptimized && <CardDescription>会按照当前选中的卡片分组，把这组遮罩高亮出来。</CardDescription>}
-                </CardHeader>
-                <CardContent className="min-h-[260px]">
-                  {previewLoading ? (
-                    <div className="flex min-h-[220px] flex-col justify-center gap-3">
-                      <Skeleton className="h-5 w-28 rounded-full" />
-                      <Skeleton className="min-h-[180px] w-full rounded-2xl" />
-                    </div>
-                  ) : previewSet.frontUrl ? (
-                    <button
-                      type="button"
-                      onClick={() => openPreview('问题面预览', '点击放大查看当前问题面。', previewSet.frontUrl)}
-                      className="relative w-full overflow-hidden rounded-xl border border-border bg-muted/20 text-left transition hover:border-primary/40"
-                    >
-                      {!previewImageLoaded.front ? <Skeleton className="absolute inset-0 rounded-none" /> : null}
-                      <img
-                        src={previewSet.frontUrl}
-                        alt="Front preview"
-                        loading="lazy"
-                        decoding="async"
-                        className={cn('max-h-[420px] cursor-zoom-in w-full object-contain transition-opacity duration-200', previewImageLoaded.front ? 'opacity-100' : 'opacity-0')}
-                        onLoad={() => setPreviewImageLoaded((current) => ({ ...current, front: true }))}
-                        onError={() => setPreviewImageLoaded((current) => ({ ...current, front: true }))}
-                      />
-                    </button>
-                  ) : (
-                    <Empty className="min-h-[220px] border-border bg-muted/30">
-                      <EmptyHeader>
-                        <EmptyTitle>还没有预览</EmptyTitle>
-                        <EmptyDescription>画出遮罩后，这里会立刻显示当前卡片的问题面。</EmptyDescription>
-                      </EmptyHeader>
-                    </Empty>
-                  )}
-                </CardContent>
-              </Card>
+              <PreviewPanel
+                title="问题面预览"
+                description={
+                  generationMode === 'hide-current-only'
+                    ? '当前模式下，题面只会遮住你选中的这一组。'
+                    : generationMode === 'single-card-toggle'
+                      ? '当前模式会生成一张可点击的整图卡；这里先用静态图预览全部遮罩的位置。'
+                      : '会按照当前选中的卡片分组，把这组遮罩高亮出来。'
+                }
+                imageUrl={previewSet.frontUrl}
+                loading={previewLoading}
+                emptyTitle="还没有预览"
+                emptyDescription="画出遮罩后，这里会立刻显示当前卡片的问题面。"
+                onOpen={() => openPreview('问题面预览', '点击放大查看当前问题面。', previewSet.frontUrl)}
+                onImageLoadedChange={() => {}}
+                alt="Front preview"
+                touchOptimized={touchOptimized}
+              />
 
-              <Card className="border-border/70 bg-background/80">
-                <CardHeader className={cn(touchOptimized && "pb-2")}>
-                  <CardTitle className={cn(touchOptimized && "text-[14px]")}>答案面预览</CardTitle>
-                  {!touchOptimized && <CardDescription>答案面会保留当前卡片本身的答案区域，并继续隐藏其他组的遮罩。</CardDescription>}
-                </CardHeader>
-                <CardContent className="min-h-[260px]">
-                  {previewLoading ? (
-                    <div className="flex min-h-[220px] flex-col justify-center gap-3">
-                      <Skeleton className="h-5 w-28 rounded-full" />
-                      <Skeleton className="min-h-[180px] w-full rounded-2xl" />
-                    </div>
-                  ) : previewSet.backUrl ? (
-                    <button
-                      type="button"
-                      onClick={() => openPreview('答案面预览', '点击放大查看当前答案面。', previewSet.backUrl)}
-                      className="relative w-full overflow-hidden rounded-xl border border-border bg-muted/20 text-left transition hover:border-primary/40"
-                    >
-                      {!previewImageLoaded.back ? <Skeleton className="absolute inset-0 rounded-none" /> : null}
-                      <img
-                        src={previewSet.backUrl}
-                        alt="Back preview"
-                        loading="lazy"
-                        decoding="async"
-                        className={cn('max-h-[420px] cursor-zoom-in w-full object-contain transition-opacity duration-200', previewImageLoaded.back ? 'opacity-100' : 'opacity-0')}
-                        onLoad={() => setPreviewImageLoaded((current) => ({ ...current, back: true }))}
-                        onError={() => setPreviewImageLoaded((current) => ({ ...current, back: true }))}
-                      />
-                    </button>
-                  ) : (
-                    <Empty className="min-h-[220px] border-border bg-muted/30">
-                      <EmptyHeader>
-                        <EmptyTitle>还没有预览</EmptyTitle>
-                        <EmptyDescription>当前还没有可展示的答案面效果。</EmptyDescription>
-                      </EmptyHeader>
-                    </Empty>
-                  )}
-                </CardContent>
-              </Card>
+              <PreviewPanel
+                title="答案面预览"
+                description={
+                  generationMode === 'hide-current-only'
+                    ? '当前模式下，答案面会把全部内容都显示出来。'
+                    : generationMode === 'single-card-toggle'
+                      ? '真正复习时可以直接点遮罩查看或重新盖回去；这里展示的是静态落地效果。'
+                      : '答案面会保留当前卡片本身的答案区域，并继续隐藏其他组的遮罩。'
+                }
+                imageUrl={previewSet.backUrl}
+                loading={previewLoading}
+                emptyTitle="还没有预览"
+                emptyDescription="当前还没有可展示的答案面效果。"
+                onOpen={() => openPreview('答案面预览', '点击放大查看当前答案面。', previewSet.backUrl)}
+                onImageLoadedChange={() => {}}
+                alt="Back preview"
+                touchOptimized={touchOptimized}
+              />
             </div>
           </div>
         </ScrollArea>

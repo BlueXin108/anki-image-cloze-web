@@ -154,7 +154,7 @@ export function ManualRightPanel({
                     onQualityChange(Number.isFinite(next) ? Math.max(1, Math.min(next, 100)) : quality)
                   }}
                 />
-                <FieldDescription>默认 80。第一版不做更多复杂导出参数，先把核心发卡链路跑通。</FieldDescription>
+                <FieldDescription>默认 80。数值越高越清晰，文件也会更大，一般保持在 60 到 85 就够用了。</FieldDescription>
               </FieldContent>
             </Field>
           </FieldGroup>
@@ -173,7 +173,7 @@ export function ManualRightPanel({
               <button
                 type="button"
                 onClick={() => setPreviewOpen(true)}
-                className="flex w-full items-center gap-3 rounded-2xl border border-border/60 bg-muted/20 p-3 text-left transition hover:border-primary/40"
+                className="flex w-full items-center gap-3 rounded-2xl border border-border/60 bg-muted/20 p-3 text-left trs-all-400 hover:border-primary/40"
               >
                 <img src={previewUrl} alt="导出预览" className="h-24 w-24 rounded-xl border border-border/60 object-cover" />
                 <div className="min-w-0 flex-1">
@@ -223,7 +223,7 @@ export function ManualRightPanel({
             <ShieldCheckIcon data-icon="inline-start" />
             <AlertTitle>连接失败时该检查什么</AlertTitle>
             <AlertDescription>
-              先确认 Anki 已打开、AnkiConnect 已安装并允许来自当前网页的访问。如果你是在远端网页里打开本站，只要本机插件已放行，这条链路就有机会直接打通。
+              先确认 Anki 已打开、AnkiConnect 已安装，并且已经允许当前网页访问。如果你是从远端站点打开本站，只要本机插件完成放行，网页仍然可以连接到你电脑里的 Anki。
             </AlertDescription>
           </Alert>
 

@@ -1,4 +1,4 @@
-import type { CropSuggestion, DraftListItem, WorkspaceMode, WorkbenchSettings } from '@/types'
+import type { CropSuggestion, DraftListItem, ImageSourceQuality, WorkspaceMode, WorkbenchSettings } from '@/types'
 import { normalizeImportedImage } from '@/lib/image-processing'
 
 const IMAGE_TYPES = new Set([
@@ -22,6 +22,7 @@ interface DraftBlobSource {
   name: string
   relativePath?: string
   mediaType?: string
+  sourceQuality?: ImageSourceQuality
 }
 
 function normalizeFolderPath(relativePath: string): { sourcePath: string; folderPath: string } {
@@ -95,6 +96,7 @@ async function buildDraftItemFromBlob(source: DraftBlobSource): Promise<DraftLis
       tags: [],
       source_url: sourceUrl,
       media_type: source.mediaType || source.blob.type || 'image/png',
+      source_quality: source.sourceQuality ?? 'original',
     },
     draft: {
       id: draftId,
@@ -128,6 +130,7 @@ export async function buildDraftItemFromFile(file: File): Promise<DraftListItem>
     name: file.name,
     relativePath: extended.webkitRelativePath?.trim() || file.name,
     mediaType: file.type || 'image/png',
+    sourceQuality: 'original',
   })
 }
 
@@ -142,6 +145,7 @@ export async function buildDraftItemFromAsset(assetUrl: string, name: string, re
     name,
     relativePath: relativePath || name,
     mediaType: blob.type || 'image/png',
+    sourceQuality: 'original',
   })
 }
 
@@ -174,6 +178,7 @@ export async function buildDraftItemsFromFiles(
       name: file.name,
       relativePath: extended.webkitRelativePath?.trim() || file.name,
       mediaType: normalized.mediaType,
+      sourceQuality: options?.settings?.importCompressionEnabled ? 'import-compressed' : 'original',
     })
     items.push(item)
     options?.onProgress?.({
