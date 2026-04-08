@@ -85,6 +85,10 @@ const SLOW_SAVE_REPEAT_THRESHOLD_MS = 100
 const SLOW_SAVE_REPEAT_TRIGGER_COUNT = 3
 const AUTO_OPTIMIZE_MAX_DIMENSION = DEFAULT_WORKBENCH_SETTINGS.importMaxDimension
 const AUTO_OPTIMIZE_QUALITY = DEFAULT_WORKBENCH_SETTINGS.importImageQuality / 100
+const WORKBENCH_MAIN_DELAY_MS = 600
+const WORKBENCH_INTRO_END_MS = 2200
+const WORKBENCH_EASE_OUT = [0, 0.43, 0, 0.99] as const
+const WORKBENCH_EASE_INOUT = [0.54, 0, 0, 0.99] as const
 
 type ProcessingProgress = ProcessingProgressView
 
@@ -101,6 +105,32 @@ type PendingImageEditSaveMetric = {
   action: 'masks' | 'crop'
 }
 
+const editorBarVariants = {
+  hidden: { y: 100, opacity: 0 },
+  visible: { 
+    y: 0, 
+      opacity: 1,
+      transition: {
+        delay: 0.6,
+        duration: 1,
+        ease: WORKBENCH_EASE_OUT,
+      }
+    }
+}
+
+const workbenchMainVariants = {
+  hidden: { opacity: 0, y: 64 },
+  visible: {
+      opacity: 1,
+      y: 0,
+      transition: {
+        delay: 0.6,
+        duration: 1,
+        ease: WORKBENCH_EASE_OUT,
+      },
+    },
+  }
+
 export default function App() {
   const deviceProfile = useDeviceProfile()
   const [draftItems, setDraftItems] = useState<DraftListItem[]>([])
@@ -114,7 +144,7 @@ export default function App() {
   const [ankiState, setAnkiState] = useState<AnkiConnectionState>(EMPTY_ANKI_STATE)
   const [deckPool, setDeckPool] = useState<string[]>(() => loadDeckPool())
   const [deckQuickPicks, setDeckQuickPicks] = useState<string[]>(() => loadDeckQuickPicks())
-  const [storageReady, setStorageReady] = useState(false)
+  const [storageReady, setStorageReady] = useState(true)
   const [optimizeProgress, setOptimizeProgress] = useState<ProcessingProgress | null>(null)
   const [recoverableProjectSummary, setRecoverableProjectSummary] = useState<RecoverableProjectSummary | null>(null)
   const [statusTasks, setStatusTasks] = useState<Record<StatusTaskId, StatusTaskState>>(() => createInitialStatusTasks())
@@ -169,6 +199,9 @@ export default function App() {
     open: false,
     draftIds: [],
   })
+  const [workbenchIntroActive, setWorkbenchIntroActive] = useState(false)
+  const [workbenchMainReady, setWorkbenchMainReady] = useState(true)
+  const previousShowLandingRef = useRef(true)
 
   const selectedItem = useMemo(
     () => draftItems.find((item) => item.draft.id === selectedDraftId) ?? draftItems[0] ?? null,
@@ -184,6 +217,57 @@ export default function App() {
     () => activeDraftItems.findIndex((item) => item.draft.id === selectedItem?.draft.id),
     [activeDraftItems, selectedItem?.draft.id],
   )
+  const showLanding = draftItems.length === 0 && storageReady
+  const suppressOverlayUi = showLanding || workbenchIntroActive
+  const shouldRenderWorkbenchMain = workbenchMainReady || !workbenchIntroActive
+  const workbenchHeaderMotion = workbenchIntroActive
+    ? {
+        initial: { opacity: 0 },
+        animate: {
+          opacity: 1,
+          transition: {
+            delay: 2,
+            duration: 1,
+            ease: WORKBENCH_EASE_INOUT,
+          },
+        },
+      }
+    : undefined
+
+  useEffect(() => {
+    if (typeof document === 'undefined') return
+    document.documentElement.dataset.overlaySuppressed = suppressOverlayUi ? '1' : '0'
+    return () => {
+      delete document.documentElement.dataset.overlaySuppressed
+    }
+  }, [suppressOverlayUi])
+
+  useEffect(() => {
+    if (showLanding) {
+      previousShowLandingRef.current = true
+      setWorkbenchIntroActive(false)
+      setWorkbenchMainReady(true)
+      return
+    }
+
+    if (!previousShowLandingRef.current) {
+      setWorkbenchIntroActive(false)
+      setWorkbenchMainReady(true)
+      return
+    }
+
+    previousShowLandingRef.current = false
+    setWorkbenchIntroActive(true)
+    setWorkbenchMainReady(false)
+
+    const mainTimer = window.setTimeout(() => setWorkbenchMainReady(true), WORKBENCH_MAIN_DELAY_MS)
+    const endTimer = window.setTimeout(() => setWorkbenchIntroActive(false), WORKBENCH_INTRO_END_MS)
+
+    return () => {
+      window.clearTimeout(mainTimer)
+      window.clearTimeout(endTimer)
+    }
+  }, [showLanding])
 
   useEffect(() => {
     if (exportModulesPrefetchedRef.current) return
@@ -471,6 +555,13 @@ export default function App() {
   }, [dismissRestoreProjectPrompt])
 
   const handleRestorePromptReady = useCallback((saved: RecoverableProjectSummary, restoreAction: () => Promise<void>) => {
+    void saved
+    void restoreAction
+    return
+
+    // 如果没有项目（在首屏），则不主动弹窗
+    if (draftItemsRef.current.length === 0) return
+
     const savedAtLabel = new Date(saved.savedAt).toLocaleString('zh-CN', { hour12: false })
     queueMicrotask(() => {
       restorePromptToastIdRef.current = toast('检测到上次本地项目', {
@@ -864,29 +955,36 @@ export default function App() {
   return (
     <MotionConfig reducedMotion={workbenchSettings.disableAnimations ? "always" : "user"}>
       <div 
-        className="min-h-screen relative text-foreground"
+        className={showLanding ? "relative min-h-screen overflow-hidden text-foreground bg-[#f8fafc]" : "relative min-h-screen text-foreground bg-[#f8fafc]"}
         onDragEnter={handleDragEnter}
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
       >
-        <AnimatePresence mode="wait">
-          {draftItems.length === 0 && storageReady && !isImportingFiles ? (
-            <PageTransition key="landing">
+        <AnimatePresence mode="popLayout">
+          {showLanding ? (
+            <PageTransition key="landing" className="w-full">
               <LandingPage 
                 onIngest={safeIngestFiles}
-                onRestore={() => void run('restore-project', restoreSavedProject)}
+                onRestore={() => run('restore-project', restoreSavedProject)}
                 isImporting={isImportingFiles || loadingKey === 'restore-project'}
                 recoverableSummary={recoverableProjectSummary}
+                mobileOptimized={deviceProfile.isMobileDevice}
+                onCapturePhoto={deviceProfile.canReliableCameraCapture ? () => cameraInputRef.current?.click() : undefined}
+                onImportFiles={() => fileManagerInputRef.current?.click()}
               />
             </PageTransition>
           ) : (
-            <PageTransition 
+            <div
               key="workbench"
-              className="bg-[radial-gradient(circle_at_top_left,_rgba(148,163,184,0.16),_transparent_28%),radial-gradient(circle_at_top_right,_rgba(255,255,255,0.7),_transparent_18%),linear-gradient(180deg,#f8fafc_0%,#f1f5f9_100%)]"
+              className="w-full bg-[radial-gradient(circle_at_top_left,_rgba(148,163,184,0.16),_transparent_28%),radial-gradient(circle_at_top_right,_rgba(255,255,255,0.7),_transparent_18%),linear-gradient(180deg,#f8fafc_0%,#f1f5f9_100%)]"
             >
               <div className={deviceProfile.isMobileLayout ? 'mx-auto flex min-h-screen max-w-[1600px] flex-col gap-4 px-4 py-4 pb-24 md:px-6' : 'mx-auto flex min-h-screen max-w-[1600px] flex-col gap-4 px-4 py-4 md:px-6'}>
-                <div className={!deviceProfile.isMobileDevice && editorHoverActive ? 'transition-[opacity,filter] duration-200 opacity-55 saturate-75' : 'transition-[opacity,filter] duration-200'}>
+                <motion.div
+                  className={!deviceProfile.isMobileDevice && editorHoverActive ? 'transition-[opacity,filter] duration-200 opacity-55 saturate-75' : 'transition-[opacity,filter] duration-200'}
+                  initial={workbenchHeaderMotion?.initial}
+                  animate={workbenchHeaderMotion?.animate}
+                >
                   <WorkbenchHeader
                     workspaceMode={workspaceMode}
                     onWorkspaceModeChange={setWorkspaceMode}
@@ -926,13 +1024,19 @@ export default function App() {
                     showModeTabs={ENABLE_WORKSPACE_MODE_SWITCH}
                     projectCompressionState={projectCompressionState}
                     projectCompressionCount={projectCompressionCount}
+                    introMode={workbenchIntroActive}
                   />
-                </div>
+                </motion.div>
 
                 {showWorkspaceLoadingShell ? (
                   <WorkspaceLoadingShell mobile={deviceProfile.isMobileLayout} />
-                ) : (
-                  <div className="relative">
+                ) : !shouldRenderWorkbenchMain ? null : (
+                  <motion.div
+                    variants={workbenchMainVariants}
+                    initial={workbenchIntroActive ? "hidden" : false}
+                    animate="visible"
+                    className="relative"
+                  >
                     {workspaceMode === 'pipeline' ? (
                       <Suspense
                         fallback={
@@ -953,30 +1057,43 @@ export default function App() {
                       </Suspense>
                     ) : deviceProfile.isMobileLayout ? (
                       <div className="flex min-h-[calc(100vh-220px)] flex-col gap-4">
-                        <ManualDraftList
-                          items={draftItems}
-                          selectedDraftId={selectedItem?.draft.id ?? null}
-                          onSelect={setSelectedDraftId}
-                          onRemoveItem={removeDraftItem}
-                          mobileLayout
-                        />
-                        <div className="min-h-0 rounded-2xl border border-border/70 bg-background/90 shadow-lg shadow-slate-900/5 backdrop-blur">
-                            <ManualWorkspace
-                              selectedItem={selectedItem}
-                              onMasksCommit={commitMasks}
-                              onCropCommit={commitCrop}
-                              generationMode={workbenchSettings.cardGenerationMode}
-                              focusShortcutEnabled={!exportDialogOpen}
-                              onEditorHoverChange={setEditorHoverActive}
-                              readOnlyInWorkspace={deviceProfile.isMobileDevice}
-                              touchOptimized={deviceProfile.isTouchLike}
-                              onPreviousItem={selectPreviousDraft}
-                              onNextItem={selectNextDraft}
-                              canGoPrevious={selectedDraftIndex > 0}
-                              canGoNext={selectedDraftIndex >= 0 && selectedDraftIndex < activeDraftItems.length - 1}
-                              isGlobalDragActive={isDragActive}
-                            />
-                        </div>
+                        <motion.div
+                          initial={workbenchIntroActive ? { opacity: 0, y: 26 } : false}
+                          animate={{ opacity: 1, y: 0 }}
+                          transition={{ delay: workbenchIntroActive ? 0.2 : 0, duration: 1, ease: WORKBENCH_EASE_OUT }}
+                          className="opacity-0 will-change-[opacity,transform]"
+                        >
+                          <ManualDraftList
+                            items={draftItems}
+                            selectedDraftId={selectedItem?.draft.id ?? null}
+                            onSelect={setSelectedDraftId}
+                            onRemoveItem={removeDraftItem}
+                            mobileLayout
+                          />
+                        </motion.div>
+                        <motion.div
+                          initial={workbenchIntroActive ? { opacity: 0, y: 26 } : false}
+                          animate={{ opacity: 1, y: 0 }}
+                          transition={{ delay: workbenchIntroActive ? 0.34 : 0, duration: 1, ease: WORKBENCH_EASE_OUT }}
+                          className="min-h-0 rounded-2xl border border-border/70 bg-background/90 shadow-lg shadow-slate-900/5 backdrop-blur opacity-0 will-change-[opacity,transform]"
+                        >
+                          <ManualWorkspace
+                            selectedItem={selectedItem}
+                            onMasksCommit={commitMasks}
+                            onCropCommit={commitCrop}
+                            generationMode={workbenchSettings.cardGenerationMode}
+                            focusShortcutEnabled={!exportDialogOpen}
+                            onEditorHoverChange={setEditorHoverActive}
+                            readOnlyInWorkspace={deviceProfile.isMobileDevice}
+                            touchOptimized={deviceProfile.isTouchLike}
+                            onPreviousItem={selectPreviousDraft}
+                            onNextItem={selectNextDraft}
+                            canGoPrevious={selectedDraftIndex > 0}
+                            canGoNext={selectedDraftIndex >= 0 && selectedDraftIndex < activeDraftItems.length - 1}
+                            isGlobalDragActive={isDragActive}
+                            shortcutOverlayReady={!workbenchIntroActive}
+                          />
+                        </motion.div>
                       </div>
                     ) : (
                       <div ref={manualLayoutRef} className="h-[calc(100vh-220px)] min-h-[calc(100vh-220px)]">
@@ -1005,6 +1122,7 @@ export default function App() {
                               canGoPrevious={selectedDraftIndex > 0}
                               canGoNext={selectedDraftIndex >= 0 && selectedDraftIndex < activeDraftItems.length - 1}
                               isGlobalDragActive={isDragActive}
+                              shortcutOverlayReady={!workbenchIntroActive}
                             />
                           </ResizablePanel>
                         </ResizablePanelGroup>
@@ -1042,20 +1160,27 @@ export default function App() {
                         </motion.div>
                       ) : null}
                     </AnimatePresence>
-                  </div>
+                  </motion.div>
                 )}
 
                 {deviceProfile.isMobileLayout ? (
-                  <div className="flex flex-col gap-1 px-1 pb-1 text-[11px] leading-5 text-muted-foreground/72">
-                    <div className="flex items-start gap-1.5">
-                      <BadgeCheckIcon className="mt-[1px] size-3.5 shrink-0 text-muted-foreground/65" />
-                      <span>Web 加载处理库，图片只在当前设备本地处理。</span>
-                    </div>
-                    <div className="flex items-start gap-1.5">
-                      <BadgeCheckIcon className="mt-[1px] size-3.5 shrink-0 text-muted-foreground/65" />
-                      <span>支持 PWA，可安装到桌面或主屏。</span>
-                    </div>
-                  </div>
+                  shouldRenderWorkbenchMain ? (
+                    <motion.div
+                      initial={workbenchIntroActive ? { opacity: 0, y: 14 } : false}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: workbenchIntroActive ? 0.48 : 0, duration: 0.8, ease: WORKBENCH_EASE_OUT }}
+                      className="flex flex-col gap-1 px-1 pb-1 text-[11px] leading-5 text-muted-foreground/72 opacity-0 will-change-[opacity,transform]"
+                    >
+                      <div className="flex items-start gap-1.5">
+                        <BadgeCheckIcon className="mt-[1px] size-3.5 shrink-0 text-muted-foreground/65" />
+                        <span>Web 加载处理库，图片只在当前设备本地处理。</span>
+                      </div>
+                      <div className="flex items-start gap-1.5">
+                        <BadgeCheckIcon className="mt-[1px] size-3.5 shrink-0 text-muted-foreground/65" />
+                        <span>支持 PWA，可安装到桌面或主屏。</span>
+                      </div>
+                    </motion.div>
+                  ) : null
                 ) : (
                   <div className="px-1 pb-1 text-[11px] leading-5 text-muted-foreground/70">
                     Web 本地处理。这是基于 React + Vite 的网页工具；图片只会进入当前浏览器内存，处理和导出都在你的设备上完成。支持安装到桌面或主屏。
@@ -1063,30 +1188,37 @@ export default function App() {
                 )}
               </div>
 
-              {!deviceProfile.isMobileDevice ? <StatusCapsule tasks={orderedStatusTasks} side="left" /> : null}
+              {!deviceProfile.isMobileDevice && !suppressOverlayUi ? <StatusCapsule tasks={orderedStatusTasks} side="left" /> : null}
 
               {workspaceMode === 'manual' ? (
-                <div className={deviceProfile.isMobileLayout ? 'pointer-events-none fixed inset-x-4 bottom-4 z-50' : 'pointer-events-none fixed right-4 bottom-4 z-50'}>
-                  <Button
-                    type="button"
-                    size="lg"
-                    className={deviceProfile.isMobileLayout ? 'pointer-events-auto h-12 w-full rounded-2xl shadow-lg shadow-slate-900/10 cursor-pointer overflow-hidden bg-foreground text-background hover:bg-foreground/90 active:scale-[0.98] trs-all-400' : 'pointer-events-auto rounded-full shadow-lg shadow-slate-900/10 cursor-pointer overflow-hidden bg-foreground text-background hover:h-12 hover:px-4 hover:bg-foreground/90 hover:-translate-y-0.5 active:scale-[0.98] trs-all-400'}
-                    onClick={() => {
-                      if (exportQueue.length === 0) {
-                        updateStatusTask('export', { state: 'error', progress: 100, detail: '当前还没有可以进入导出流程的图片。' })
-                      }
-                      setExportDialogRequested(true)
-                      startExportFlow()
-                    }}
-                    disabled={exportQueue.length === 0}
+                shouldRenderWorkbenchMain ? (
+                  <motion.div 
+                    variants={editorBarVariants}
+                    initial={workbenchIntroActive ? "hidden" : false}
+                    animate="visible"
+                    className={deviceProfile.isMobileLayout ? 'pointer-events-none fixed inset-x-4 bottom-4 z-50' : 'pointer-events-none fixed right-4 bottom-4 z-50'}
                   >
-                    <DownloadIcon data-icon="inline-start " />
-                    {exportButtonLabel}
-                    <span className="rounded-full bg-background/16 px-2 py-0.5 text-xs text-background">{exportQueue.length}</span>
-                  </Button>
-                </div>
+                    <Button
+                      type="button"
+                      size="lg"
+                      className={deviceProfile.isMobileLayout ? 'pointer-events-auto h-12 w-full rounded-2xl shadow-lg shadow-slate-900/10 cursor-pointer overflow-hidden bg-foreground text-background hover:bg-foreground/90 active:scale-[0.98] trs-all-400' : 'pointer-events-auto rounded-full shadow-lg shadow-slate-900/10 cursor-pointer overflow-hidden bg-foreground text-background hover:h-12 hover:px-4 hover:bg-foreground/90 hover:-translate-y-0.5 active:scale-[0.98] trs-all-400'}
+                      onClick={() => {
+                        if (exportQueue.length === 0) {
+                          updateStatusTask('export', { state: 'error', progress: 100, detail: '当前还没有可以进入导出流程的图片。' })
+                        }
+                        setExportDialogRequested(true)
+                        startExportFlow()
+                      }}
+                      disabled={exportQueue.length === 0}
+                    >
+                      <DownloadIcon data-icon="inline-start " />
+                      {exportButtonLabel}
+                      <span className="rounded-full bg-background/16 px-2 py-0.5 text-xs text-background">{exportQueue.length}</span>
+                    </Button>
+                  </motion.div>
+                ) : null
               ) : null}
-            </PageTransition>
+            </div>
           )}
         </AnimatePresence>
 

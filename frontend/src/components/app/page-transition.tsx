@@ -1,5 +1,7 @@
 import { motion, type HTMLMotionProps } from 'framer-motion'
-import { ReactNode } from 'react'
+import type { ReactNode } from 'react'
+
+const pageEase = [0.54, 0, 0, 0.99] as const
 
 /**
  * 页面切换动画变体定义
@@ -8,26 +10,22 @@ import { ReactNode } from 'react'
 const pageVariants = {
   initial: {
     opacity: 0,
-    scale: 0.98,
-    filter: 'blur(10px)',
+    y: 18,
   },
   animate: {
     opacity: 1,
-    scale: 1,
-    filter: 'blur(0px)',
-    transition: {
-      duration: 0.5,
-      ease: [0.16, 1, 0.3, 1], // cb-out 曲线
-      staggerChildren: 0.1,
-    },
+    y: 0,
+      transition: {
+        duration: 1.5,
+        ease: pageEase, // cb-inout
+      },
   },
   exit: {
     opacity: 0,
-    scale: 1.02,
-    filter: 'blur(10px)',
+    y: -12,
     transition: {
-      duration: 0.4,
-      ease: [0.7, 0, 0.84, 0], // easeIn 曲线
+      duration: 0.28,
+      ease: pageEase,
     },
   },
 }

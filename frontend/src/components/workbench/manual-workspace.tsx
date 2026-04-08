@@ -37,6 +37,7 @@ interface ManualWorkspaceProps {
   isGlobalDragActive?: boolean
   generationMode?: CardGenerationMode
   onFocusModeChange?: (open: boolean) => void
+  shortcutOverlayReady?: boolean
 }
 
 // 提取你提供的完整快捷键清单
@@ -201,6 +202,7 @@ export const ManualWorkspace = memo(function ManualWorkspace({
   isGlobalDragActive = false,
   generationMode = 'hide-all-reveal-current',
   onFocusModeChange,
+  shortcutOverlayReady = true,
 }: ManualWorkspaceProps) {
   const [previewOpen, setPreviewOpen] = useState(false)
   const [previewTitle, setPreviewTitle] = useState('')
@@ -213,6 +215,7 @@ export const ManualWorkspace = memo(function ManualWorkspace({
   
   // Hover 状态控制与 Portal 挂载状态
   const [isEditorHovered, setIsEditorHovered] = useState(false)
+  const [shortcutOverlayVisible, setShortcutOverlayVisible] = useState(false)
   const [mounted, setMounted] = useState(false)
   const focusModeInitializedRef = useRef(false)
 
@@ -222,8 +225,24 @@ export const ManualWorkspace = memo(function ManualWorkspace({
   }, [])
 
   useEffect(() => {
-    onEditorHoverChange?.(!touchOptimized && isEditorHovered && !focusMode)
-  }, [focusMode, isEditorHovered, onEditorHoverChange, touchOptimized])
+    onEditorHoverChange?.(!touchOptimized && isEditorHovered && !focusMode && shortcutOverlayVisible)
+  }, [focusMode, isEditorHovered, onEditorHoverChange, shortcutOverlayVisible, touchOptimized])
+
+  useEffect(() => {
+    if (touchOptimized || !shortcutOverlayReady || focusMode) {
+      setShortcutOverlayVisible(false)
+      return
+    }
+
+    const timer = window.setTimeout(() => {
+      setShortcutOverlayVisible(true)
+    }, 1000)
+
+    return () => {
+      window.clearTimeout(timer)
+      setShortcutOverlayVisible(false)
+    }
+  }, [focusMode, shortcutOverlayReady, touchOptimized])
 
   useEffect(() => {
     if (!focusModeInitializedRef.current) {
@@ -422,7 +441,7 @@ export const ManualWorkspace = memo(function ManualWorkspace({
             // pr-24 控制白色渐变背景的宽度，确保其涵盖最长的文字
             'bg-gradient-to-r from-white/100 via-white/98 pr-50 to-transparent',
             // 3. 动画状态：改为横向位移 (translate-x)
-            isEditorHovered && !focusMode ? 'translate-x-0 opacity-100' : '-translate-x-6 opacity-0'
+            isEditorHovered && !focusMode && shortcutOverlayVisible ? 'translate-x-0 opacity-100' : '-translate-x-6 opacity-0'
           )}
         >
           {/* 1. 第一层：文字提示与横线（移到上方作为列表标题） */}

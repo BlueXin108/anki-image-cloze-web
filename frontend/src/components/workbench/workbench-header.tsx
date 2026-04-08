@@ -89,6 +89,7 @@ interface WorkbenchHeaderProps {
 	showModeTabs?: boolean;
 	projectCompressionState?: "original" | "compressed" | "mixed" | "none";
 	projectCompressionCount?: number;
+	introMode?: boolean;
 }
 
 // --- 图标组件 ---
@@ -114,6 +115,7 @@ const AnkiIcon = memo(({className}: {className?: string}) => (
 const MainIcon = memo(() => (
 	<motion.div 
 		layoutId="header-icon"
+		transition={sharedLayoutTransition}
 		className="flex size-11 shrink-0 items-center justify-center rounded-2xl border border-border/70 bg-muted/35 text-foreground"
 	>
 		<AnkiIcon className="size-6 text-foreground/80" />
@@ -128,6 +130,14 @@ const GUIDE_STEPS = [
 	{step: "anki" as const, label: "Anki"},
 	{step: "export" as const, label: "导出"},
 ];
+
+const introEase = [0.54, 0, 0, 0.99] as const;
+const sharedLayoutTransition = {
+	layout: {
+		duration: 1.5,
+		ease: introEase,
+	},
+} as const;
 
 // --- 全新的步骤条组件 (Stepper) ---
 const GuideStepper = memo(function GuideStepper({
@@ -223,6 +233,7 @@ export const WorkbenchHeader = memo(function WorkbenchHeader({
 	showModeTabs = true,
 	projectCompressionState = "none",
 	projectCompressionCount = 0,
+	introMode = false,
 }: WorkbenchHeaderProps) {
 	const [guideOpen, setGuideOpen] = useState(false);
 	const [ankiHelpRequested, setAnkiHelpRequested] = useState(false);
@@ -308,9 +319,37 @@ export const WorkbenchHeader = memo(function WorkbenchHeader({
 				: projectCompressionState === "mixed" && projectCompressionCount > 0
 					? `${projectCompressionCount} 次`
 					: "";
+	const introContentMotionProps = introMode
+		? {
+				initial: { opacity: 0, y: 12 },
+				animate: {
+					opacity: 1,
+					y: 0,
+					transition: {
+						duration: 1.2,
+						ease: introEase,
+						delay: 0.42,
+					},
+				},
+			}
+		: undefined;
+	const introSideMotionProps = introMode
+		? {
+				initial: { opacity: 0, y: 16 },
+				animate: {
+					opacity: 1,
+					y: 0,
+					transition: {
+						duration: 1.2,
+						ease: introEase,
+						delay: 0.56,
+					},
+				},
+			}
+		: undefined;
 
 	return (
-		<Card data-telemetry-section="header" className="overflow-hidden border-none bg-white/60 outline-0 ring-0 rounded-md">
+		<Card data-telemetry-section="header" className="overflow-visible border-none bg-white/60 outline-0 ring-0 rounded-md">
 			<CardContent className="px-4">
 				<div
 					className={cn(
@@ -323,52 +362,54 @@ export const WorkbenchHeader = memo(function WorkbenchHeader({
 							<div className="flex flex-wrap items-center gap-2">
 								<motion.h3 
 									layoutId="header-title"
+									transition={sharedLayoutTransition}
 									className="text-lg font-semibold tracking-tight md:text-lg text-foreground"
 								>
 									Anki-图像遮罩工具
 								</motion.h3>
-								<Tooltip>
-									<TooltipTrigger asChild>
-										<button type="button" className="cursor-help text-muted-foreground trs-all-400 hover:text-foreground">
-											{mobileOptimized ? <SmartphoneIcon className="size-3.5" /> : <MonitorIcon className="size-3.5" />}
-										</button>
-									</TooltipTrigger>
-									<TooltipContent side="right" sideOffset={8}>
-										{mobileOptimized ? '当前是手机端，建议改到电脑端使用 AnkiConnect 获得更完整体验。' : '当前是电脑端，支持直接连接本机 Anki 读取牌组。'}
-									</TooltipContent>
-								</Tooltip>
-								<div className="h-3 w-px bg-border/70" />
-								{showAnkiActions ? (
-									<>
-										<Button
-											size="sm"
-											variant="ghost"
-											className="h-8 rounded-xl px-2 text-muted-foreground hover:text-foreground"
-											onClick={() => {
-												setAnkiHelpRequested(true);
-												if (onOpenAnkiHelp) onOpenAnkiHelp();
-												else onAnkiHelpOpenChange?.(true);
-											}}
-										>
-											<span className="font-medium text-current">Anki</span>
-											<span className="ml-1 inline-flex items-center justify-center text-current">
-												<MessageCircleQuestionIcon className="size-4" />
-											</span>
-										</Button>
-										{ankiHelpRequested ? (
-											<Suspense fallback={null}>
-												<LazyAnkiConnectHelpPopover
-													open={ankiHelpOpen}
-													onOpenChange={onAnkiHelpOpenChange}
-													compact
-													showTrigger={false}
-												/>
-											</Suspense>
-										) : null}
-									</>
-								) : null}
-								{settingsAction}
-								<DropdownMenu>
+								<motion.div className="flex flex-wrap items-center gap-2" {...introContentMotionProps}>
+									<Tooltip>
+										<TooltipTrigger asChild>
+											<button type="button" className="cursor-help text-muted-foreground trs-all-400 hover:text-foreground">
+												{mobileOptimized ? <SmartphoneIcon className="size-3.5" /> : <MonitorIcon className="size-3.5" />}
+											</button>
+										</TooltipTrigger>
+										<TooltipContent side="right" sideOffset={8}>
+											{mobileOptimized ? '当前是手机端，建议改到电脑端使用 AnkiConnect 获得更完整体验。' : '当前是电脑端，支持直接连接本机 Anki 读取牌组。'}
+										</TooltipContent>
+									</Tooltip>
+									<div className="h-3 w-px bg-border/70" />
+									{showAnkiActions ? (
+										<>
+											<Button
+												size="sm"
+												variant="ghost"
+												className="h-8 rounded-xl px-2 text-muted-foreground hover:text-foreground"
+												onClick={() => {
+													setAnkiHelpRequested(true);
+													if (onOpenAnkiHelp) onOpenAnkiHelp();
+													else onAnkiHelpOpenChange?.(true);
+												}}
+											>
+												<span className="font-medium text-current">Anki</span>
+												<span className="ml-1 inline-flex items-center justify-center text-current">
+													<MessageCircleQuestionIcon className="size-4" />
+												</span>
+											</Button>
+											{ankiHelpRequested ? (
+												<Suspense fallback={null}>
+													<LazyAnkiConnectHelpPopover
+														open={ankiHelpOpen}
+														onOpenChange={onAnkiHelpOpenChange}
+														compact
+														showTrigger={false}
+													/>
+												</Suspense>
+											) : null}
+										</>
+									) : null}
+									{settingsAction}
+									<DropdownMenu>
 									<DropdownMenuTrigger asChild>
 										<Button
 											size="icon-sm"
@@ -462,7 +503,9 @@ export const WorkbenchHeader = memo(function WorkbenchHeader({
 										</DropdownMenuItem>
 									</DropdownMenuContent>
 								</DropdownMenu>
+								</motion.div>
 							</div>
+							<motion.div {...introContentMotionProps}>
 							<CardDescription
 								className={cn(
 									"mt-0.5 text-xs",
@@ -470,10 +513,11 @@ export const WorkbenchHeader = memo(function WorkbenchHeader({
 								)}>
 								{headerDescription}
 							</CardDescription>
+							</motion.div>
 						</div>
 					</div>
 
-					<div className="flex min-w-0 flex-1 flex-col gap-2.5 sm:max-w-[34rem]">
+					<motion.div className="flex min-w-0 flex-1 flex-col gap-2.5 sm:max-w-[34rem]" {...introSideMotionProps}>
 						{showModeTabs ? (
 							<Tabs
 								value={workspaceMode}
@@ -530,7 +574,7 @@ export const WorkbenchHeader = memo(function WorkbenchHeader({
 							</div>
 						) : (
 							<div className="grid grid-cols-2 gap-2">
-								<motion.div layoutId="btn-upload">
+								<motion.div layoutId="btn-upload" transition={sharedLayoutTransition}>
 									<Button
 										size="default"
 										className="trs-all-400 h-10 w-full min-w-0 rounded-xl px-3 sm:px-4 border border-transparent hover:-translate-y-0.5 active:scale-[0.98] hover:bg-background hover:text-primary hover:border-border"
@@ -539,7 +583,7 @@ export const WorkbenchHeader = memo(function WorkbenchHeader({
 										上传图片
 									</Button>
 								</motion.div>
-								<motion.div layoutId="btn-import-folder">
+								<motion.div layoutId="btn-import-folder" transition={sharedLayoutTransition}>
 									<Button
 										size="default"
 										variant="secondary"
@@ -551,7 +595,7 @@ export const WorkbenchHeader = memo(function WorkbenchHeader({
 								</motion.div>
 							</div>
 						)}
-					</div>
+					</motion.div>
 
 					{workspaceMode === "manual" && !guideOpen ? (
 						<button

@@ -1,5 +1,5 @@
-import { motion, AnimatePresence } from 'framer-motion'
-import { FolderUpIcon, RotateCcwIcon, UploadCloudIcon, UploadIcon } from 'lucide-react'
+import { motion, AnimatePresence, type Transition } from 'framer-motion'
+import { CameraIcon, FolderUpIcon, RotateCcwIcon, UploadCloudIcon, UploadIcon } from 'lucide-react'
 import { useRef, useState, type ChangeEvent } from 'react'
 
 import { Button } from '@/components/ui/button'
@@ -10,6 +10,9 @@ interface LandingPageProps {
   onRestore: () => Promise<void>
   isImporting: boolean
   recoverableSummary: { itemCount: number; savedAt: string } | null
+  mobileOptimized?: boolean
+  onCapturePhoto?: () => void
+  onImportFiles?: () => void
 }
 
 const AnkiIcon = ({ className }: { className?: string }) => (
@@ -26,12 +29,45 @@ const AnkiIcon = ({ className }: { className?: string }) => (
       strokeLinecap="round"
       strokeLinejoin="round"
       d="m30.63 9.21l.735 3.685l3.452 1.482l-3.286 1.842l-.345 3.744l-2.76-2.554l-3.665.829l1.57-3.413l-1.921-3.237l3.734.442l2.476-2.828zM17.565 24.906l4.456 3.003l5.001-1.97l-1.482 5.168l3.413 4.144l-5.372.188l-2.886 4.534l-1.843-5.05l-5.197-1.346l4.232-3.306l-.328-5.362zM35.5 4.5h-23a4 4 0 0 0-4 4v31a4 4 0 0 0 4 4h23a4 4 0 0 0 4-4v-31a4 4 0 0 0-4-4"
-      strokeWidth="2"
+      strokeWidth="2.5"
     />
   </svg>
 )
 
-export function LandingPage({ onIngest, onRestore, isImporting, recoverableSummary }: LandingPageProps) {
+const introEase = [0.54, 0, 0, 0.99] as const
+const introOutEase = [0, 0.43, 0, 0.99] as const
+
+function introTransition(delay: number, duration = 1): Transition {
+  return {
+    delay,
+    duration,
+    ease: introOutEase,
+  }
+}
+
+function layoutIntroTransition(delay: number, duration = 1): Transition {
+  return {
+    delay,
+    duration,
+    ease: introOutEase,
+    layout: {
+      duration: 1.5,
+      ease: introEase,
+    },
+  }
+}
+
+const introSeedClass = 'opacity-0 will-change-[opacity,transform]'
+
+export function LandingPage({
+  onIngest,
+  onRestore,
+  isImporting,
+  recoverableSummary,
+  mobileOptimized = false,
+  onCapturePhoto,
+  onImportFiles,
+}: LandingPageProps) {
   const [isDragActive, setIsDragActive] = useState(false)
   const dragCounterRef = useRef(0)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -143,7 +179,7 @@ export function LandingPage({ onIngest, onRestore, isImporting, recoverableSumma
 
   return (
     <div 
-      className="relative min-h-screen flex flex-col items-center justify-center p-6 text-center select-none overflow-hidden"
+      className="relative isolate h-[100svh] min-h-[100svh] flex flex-col items-center justify-center overflow-hidden px-5 py-6 text-center select-none sm:p-6"
       onDragEnter={handleDragEnter}
       onDragOver={(e) => e.preventDefault()}
       onDragLeave={handleDragLeave}
@@ -151,38 +187,64 @@ export function LandingPage({ onIngest, onRestore, isImporting, recoverableSumma
     >
       <LandingBackground />
 
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.8, ease: [0.16, 1, 0.3, 1] }}
-        className="z-10 max-w-3xl space-y-10"
-      >
-        <div className="space-y-6">
+      <div className="relative z-10 max-w-3xl space-y-8 sm:space-y-10">
+        <div className="space-y-5 sm:space-y-6">
           <motion.div
             layoutId="header-icon"
-            className="flex size-20 shrink-0 items-center justify-center rounded-2xl border border-border/70 bg-muted/35 text-foreground mx-auto shadow-sm"
+            initial={{ opacity: 0, y: 38 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={layoutIntroTransition(0.04)}
+            className={`mx-auto flex size-16 shrink-0 items-center justify-center rounded-2xl bg-gray-200/0 text-foreground  sm:size-20 ${introSeedClass}`}
           >
-            <AnkiIcon className="size-10 text-foreground/80" />
+            <AnkiIcon className="size-12 text-foreground/60 sm:size-10" />
           </motion.div>
-          <div className="space-y-2">
+          <div className="space-y-1.5 sm:space-y-2">
             <motion.h1 
               layoutId="header-title"
-              className="text-4xl md:text-6xl font-bold tracking-tight text-foreground"
+              initial={{ opacity: 0, y: 46 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={layoutIntroTransition(0.16)}
+              className={`text-[2rem] leading-[1.05] sm:text-4xl md:text-6xl font-bold tracking-tight text-foreground ${introSeedClass}`}
             >
               Anki-图像遮罩工具
             </motion.h1>
-            <p className="text-xl md:text-2xl text-muted-foreground font-medium max-w-2xl mx-auto leading-relaxed">
-              极简、高效的 Anki 图片遮挡卡片生成工具。<br className="hidden md:block" />
-              支持本地处理，无需上传，隐私安全。
-            </p>
+            <div className="mx-auto max-w-[20rem] text-[15px] leading-7 text-muted-foreground font-medium sm:max-w-2xl sm:text-xl md:text-2xl sm:leading-relaxed">
+              <motion.p
+                initial={{ opacity: 0, y: 52 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={introTransition(0.42)}
+                className={introSeedClass}
+              >
+                极简、高效的 Anki 图片遮挡卡片编辑工具。
+              </motion.p>
+              <motion.p
+                initial={{ opacity: 0, y: 56 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={introTransition(0.56)}
+                className={introSeedClass}
+              >
+                本地处理，无需上传，隐私安全。
+              </motion.p>
+            </div>
           </div>
         </div>
 
-        <div className="flex flex-col sm:flex-row items-center justify-center gap-4 pt-4">
-          <motion.div layoutId="btn-upload" className="w-full sm:w-auto">
+          <motion.div
+            initial={{ opacity: 0, y: 24 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={introTransition(0.72)}
+            className={`flex flex-col sm:flex-row items-center justify-center gap-3 sm:gap-4 pt-3 sm:pt-4 ${introSeedClass}`}
+          >
+          <motion.div
+            layoutId="btn-upload"
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={layoutIntroTransition(0.72)}
+            className={`w-full sm:w-auto ${introSeedClass}`}
+          >
             <Button 
               size="lg" 
-              className="h-14 w-full sm:px-8 text-lg rounded-2xl gap-3 shadow-xl shadow-primary/20 hover:shadow-primary/30 transition-all active:scale-[0.98]"
+              className="h-12 w-full rounded-2xl gap-3 text-base shadow-xl shadow-primary/20 transition-all active:scale-[0.98] hover:shadow-primary/30 sm:h-14 sm:px-8 sm:text-lg"
               onClick={() => fileInputRef.current?.click()}
               disabled={isImporting}
             >
@@ -190,35 +252,89 @@ export function LandingPage({ onIngest, onRestore, isImporting, recoverableSumma
               上传图片
             </Button>
           </motion.div>
-          <motion.div layoutId="btn-import-folder" className="w-full sm:w-auto">
-            <Button 
-              variant="secondary" 
-              size="lg" 
-              className="h-14 w-full sm:px-8 text-lg rounded-2xl gap-3 bg-background/50 backdrop-blur-sm border-border/50 hover:bg-background/80 transition-all active:scale-[0.98]"
-              onClick={() => folderInputRef.current?.click()}
-              disabled={isImporting}
+          {mobileOptimized ? (
+            <div className="grid w-full grid-cols-2 gap-3 sm:gap-4">
+              {onCapturePhoto ? (
+                <motion.div
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={introTransition(0.82)}
+                  className={`w-full ${introSeedClass}`}
+                >
+                  <Button
+                    variant="secondary"
+                    size="lg"
+                    className="h-12 w-full rounded-2xl gap-3 text-base bg-background/50 backdrop-blur-sm border-border/50 transition-all active:scale-[0.98] hover:bg-background/80"
+                    onClick={onCapturePhoto}
+                    disabled={isImporting}
+                  >
+                    <CameraIcon className="size-5" />
+                    拍摄
+                  </Button>
+                </motion.div>
+              ) : null}
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={introTransition(onCapturePhoto ? 0.9 : 0.82)}
+                className={`w-full ${introSeedClass}`}
+              >
+                <Button 
+                  variant="secondary" 
+                  size="lg" 
+                  className="h-12 w-full rounded-2xl gap-3 text-base bg-background/50 backdrop-blur-sm border-border/50 transition-all active:scale-[0.98] hover:bg-background/80"
+                  onClick={() => {
+                    if (onImportFiles) {
+                      onImportFiles()
+                      return
+                    }
+                    fileInputRef.current?.click()
+                  }}
+                  disabled={isImporting}
+                >
+                  <FolderUpIcon className="size-5" />
+                  文件管理器
+                </Button>
+              </motion.div>
+            </div>
+          ) : (
+            <motion.div
+              layoutId="btn-import-folder"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={layoutIntroTransition(0.82)}
+              className={`w-full sm:w-auto ${introSeedClass}`}
             >
-              <FolderUpIcon className="size-5" />
-              导入文件夹
-            </Button>
-          </motion.div>
-        </div>
+              <Button 
+                variant="secondary" 
+                size="lg" 
+                className="h-12 w-full rounded-2xl gap-3 text-base bg-background/50 backdrop-blur-sm border-border/50 transition-all active:scale-[0.98] hover:bg-background/80 sm:h-14 sm:px-8 sm:text-lg"
+                onClick={() => folderInputRef.current?.click()}
+                disabled={isImporting}
+              >
+                <FolderUpIcon className="size-5" />
+                导入文件夹
+              </Button>
+            </motion.div>
+          )}
+        </motion.div>
 
         <AnimatePresence>
           {recoverableSummary && (
             <motion.div
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
+              initial={{ opacity: 0, y: 20, scale: 0.98 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, scale: 0.95 }}
-              className="pt-2"
+              transition={introTransition(0.86)}
+              className={`pt-1 sm:pt-2 ${introSeedClass}`}
             >
               <button
                 onClick={onRestore}
                 disabled={isImporting}
-                className="group flex items-center gap-3 px-5 py-3 rounded-2xl bg-muted/40 hover:bg-muted/60 text-muted-foreground hover:text-foreground transition-all active:scale-[0.98] mx-auto border border-border/40 shadow-sm"
+                className="group mx-auto flex items-center gap-2.5 rounded-md  bg-muted/80 px-4 py-2.5 text-muted-foreground transition-all active:scale-[0.98] hover:bg-muted/60 hover:text-foreground sm:gap-3 sm:px-5 sm:py-3"
               >
                 <RotateCcwIcon className="size-4 group-hover:rotate-[-45deg] transition-transform" />
-                <div className="text-sm font-medium">
+                <div className="text-xs font-medium sm:text-sm">
                   恢复上次项目 <span className="opacity-50 mx-1">·</span> 
                   <span className="opacity-70">{recoverableSummary.itemCount} 张图片 ({savedAtLabel})</span>
                 </div>
@@ -227,21 +343,36 @@ export function LandingPage({ onIngest, onRestore, isImporting, recoverableSumma
           )}
         </AnimatePresence>
 
-        <div className="pt-8 flex items-center justify-center gap-8 text-sm text-muted-foreground/60 font-medium">
-          <div className="flex items-center gap-2">
-            <div className="size-1.5 rounded-full bg-current opacity-40" />
+        <div className="flex flex-wrap items-center justify-center gap-x-5 gap-y-2 pt-6 text-xs font-medium text-muted-foreground/60 sm:gap-8 sm:pt-8 sm:text-sm">
+          <motion.div
+            className={`flex items-center gap-2 ${introSeedClass}`}
+            initial={{ opacity: 0, y: 18 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={introTransition(1.5)}
+          >
+            {/* <div className="size-1.5 rounded-full bg-current opacity-40" /> */}
             支持批量处理
-          </div>
-          <div className="flex items-center gap-2">
-            <div className="size-1.5 rounded-full bg-current opacity-40" />
+          </motion.div>
+          <motion.div
+            className={`flex items-center gap-2 ${introSeedClass}`}
+            initial={{ opacity: 0, y: 18 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={introTransition(1.62)}
+          >
+            {/* <div className="size-1.5 rounded-full bg-current opacity-40" /> */}
             支持 APKG 导出
-          </div>
-          <div className="flex items-center gap-2">
-            <div className="size-1.5 rounded-full bg-current opacity-40" />
+          </motion.div>
+          <motion.div
+            className={`flex items-center gap-2 ${introSeedClass}`}
+            initial={{ opacity: 0, y: 18 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={introTransition(1.74)}
+          >
+            {/* <div className="size-1.5 rounded-full bg-current opacity-40" /> */}
             AnkiConnect 直连
-          </div>
+          </motion.div>
         </div>
-      </motion.div>
+      </div>
 
       {/* 隐藏的 Input */}
       <input
@@ -283,9 +414,14 @@ export function LandingPage({ onIngest, onRestore, isImporting, recoverableSumma
         )}
       </AnimatePresence>
 
-      <footer className="absolute bottom-8 left-0 right-0 text-center text-xs text-muted-foreground/40 font-medium">
-        基于浏览器本地技术构建 · 保护你的数据隐私
-      </footer>
+      <motion.footer
+        initial={{ opacity: 0, y: 16 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={introTransition(1.34)}
+        className={`absolute bottom-6 left-0 right-0 z-10 text-center text-[11px] text-muted-foreground/40 font-medium sm:bottom-8 sm:text-xs ${introSeedClass}`}
+      >
+        基于本地构建的 Web 应用，处理均在本地完成运算
+      </motion.footer>
     </div>
   )
 }
