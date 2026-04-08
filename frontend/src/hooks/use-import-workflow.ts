@@ -397,5 +397,6 @@ export function useImportWorkflow({
     onFolderInputChange,
     onFileManagerInputChange,
     confirmHugeImport,
+    safeIngestFiles,
   }
 }

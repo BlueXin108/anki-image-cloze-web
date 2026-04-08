@@ -7,6 +7,8 @@ import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState, star
 import { motion, AnimatePresence, MotionConfig } from 'framer-motion'
 import { toast } from 'sonner'
 
+import { LandingPage } from '@/components/landing/landing-page'
+import { PageTransition } from '@/components/app/page-transition'
 import {
   DeferredDialogFallback,
   ImportCompressionOverlay,
@@ -316,6 +318,7 @@ export default function App() {
     onFolderInputChange,
     onFileManagerInputChange,
     confirmHugeImport,
+    safeIngestFiles,
   } = useImportWorkflow({
     workbenchSettings,
     setDraftItems,
@@ -860,436 +863,453 @@ export default function App() {
 
   return (
     <MotionConfig reducedMotion={workbenchSettings.disableAnimations ? "always" : "user"}>
-    <div 
-      className="min-h-screen relative bg-[radial-gradient(circle_at_top_left,_rgba(148,163,184,0.16),_transparent_28%),radial-gradient(circle_at_top_right,_rgba(255,255,255,0.7),_transparent_18%),linear-gradient(180deg,#f8fafc_0%,#f1f5f9_100%)] text-foreground"
-      onDragEnter={handleDragEnter}
-      onDragOver={handleDragOver}
-      onDragLeave={handleDragLeave}
-      onDrop={handleDrop}
-    >
+      <div 
+        className="min-h-screen relative text-foreground"
+        onDragEnter={handleDragEnter}
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
+      >
+        <AnimatePresence mode="wait">
+          {draftItems.length === 0 && storageReady && !isImportingFiles ? (
+            <PageTransition key="landing">
+              <LandingPage 
+                onIngest={safeIngestFiles}
+                onRestore={() => void run('restore-project', restoreSavedProject)}
+                isImporting={isImportingFiles || loadingKey === 'restore-project'}
+                recoverableSummary={recoverableProjectSummary}
+              />
+            </PageTransition>
+          ) : (
+            <PageTransition 
+              key="workbench"
+              className="bg-[radial-gradient(circle_at_top_left,_rgba(148,163,184,0.16),_transparent_28%),radial-gradient(circle_at_top_right,_rgba(255,255,255,0.7),_transparent_18%),linear-gradient(180deg,#f8fafc_0%,#f1f5f9_100%)]"
+            >
+              <div className={deviceProfile.isMobileLayout ? 'mx-auto flex min-h-screen max-w-[1600px] flex-col gap-4 px-4 py-4 pb-24 md:px-6' : 'mx-auto flex min-h-screen max-w-[1600px] flex-col gap-4 px-4 py-4 md:px-6'}>
+                <div className={!deviceProfile.isMobileDevice && editorHoverActive ? 'transition-[opacity,filter] duration-200 opacity-55 saturate-75' : 'transition-[opacity,filter] duration-200'}>
+                  <WorkbenchHeader
+                    workspaceMode={workspaceMode}
+                    onWorkspaceModeChange={setWorkspaceMode}
+                    manualGuide={manualGuide}
+                    loadingKey={loadingKey}
+                    onUploadImages={() => fileInputRef.current?.click()}
+                    onCapturePhoto={deviceProfile.canReliableCameraCapture ? () => cameraInputRef.current?.click() : undefined}
+                    onImportFiles={() => fileManagerInputRef.current?.click()}
+                    onImportFolder={() => folderInputRef.current?.click()}
+                    onRestoreProject={() => void run('restore-project', restoreSavedProject)}
+                    onRefreshAnki={() => void run('refresh-anki', () => refreshAnkiConnection({ source: 'manual' }))}
+                    onOptimizeProject={() => void run('optimize-project', optimizeCurrentProjectForSpeed)}
+                    onClearProject={() => setClearConfirmOpen(true)}
+                    onExportDeckPoolBackup={deviceProfile.isMobileDevice ? exportDeckPoolBackupFile : undefined}
+                    onImportDeckPoolBackup={deviceProfile.isMobileDevice ? () => deckPoolInputRef.current?.click() : undefined}
+                    onGuideAction={(action) => void runGuideAction(action)}
+                    showAnkiActions={deviceProfile.canDirectAnki}
+                    mobileOptimized={deviceProfile.isMobileDevice}
+                    ankiHelpOpen={ankiHelpOpen}
+                    onAnkiHelpOpenChange={setAnkiHelpOpen}
+                    onOpenAnkiHelp={() => setAnkiHelpOpen(true)}
+                    touchOptimized={deviceProfile.isTouchLike}
+                    settingsAction={(
+                      <Button
+                        size="icon-sm"
+                        variant="ghost"
+                        className="trs-all-400 rounded-xl text-muted-foreground hover:-translate-y-0.5 hover:text-foreground active:scale-[0.97]"
+                        onClick={() => {
+                          setSettingsDialogRequested(true)
+                          setSettingsOpen(true)
+                        }}
+                      >
+                        <Settings2Icon />
+                        <span className="sr-only">设置</span>
+                      </Button>
+                    )}
+                    showModeTabs={ENABLE_WORKSPACE_MODE_SWITCH}
+                    projectCompressionState={projectCompressionState}
+                    projectCompressionCount={projectCompressionCount}
+                  />
+                </div>
 
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept={MOBILE_IMAGE_ACCEPT}
-        multiple
-        className="hidden"
-        onChange={(event) => void onFileInputChange(event)}
-      />
-      <input
-        ref={fileManagerInputRef}
-        type="file"
-        multiple
-        className="hidden"
-        onChange={(event) => void onFileManagerInputChange(event)}
-      />
-      <input
-        ref={cameraInputRef}
-        type="file"
-        accept={MOBILE_IMAGE_ACCEPT}
-        capture="environment"
-        className="hidden"
-        onChange={(event) => void onFileInputChange(event)}
-      />
-      <input
-        ref={folderInputRef}
-        type="file"
-        accept={MOBILE_IMAGE_ACCEPT}
-        multiple
-        className="hidden"
-        onChange={(event) => void onFolderInputChange(event)}
-        {...({ webkitdirectory: '', directory: '' } as DirectoryInputProps)}
-      />
-      <input
-        ref={deckPoolInputRef}
-        type="file"
-        accept=".json,application/json"
-        className="hidden"
-        onChange={(event) => void onDeckPoolBackupInputChange(event)}
-      />
+                {showWorkspaceLoadingShell ? (
+                  <WorkspaceLoadingShell mobile={deviceProfile.isMobileLayout} />
+                ) : (
+                  <div className="relative">
+                    {workspaceMode === 'pipeline' ? (
+                      <Suspense
+                        fallback={
+                          <Card className="rounded-[28px] border border-border/70 bg-background/90 shadow-lg shadow-slate-900/5">
+                            <CardContent className="flex flex-col gap-4 p-5 md:p-6">
+                              <Skeleton className="h-7 w-44 rounded-full" />
+                              <Skeleton className="h-4 w-full max-w-2xl rounded-full" />
+                              <div className="grid gap-3 md:grid-cols-3">
+                                <Skeleton className="h-28 w-full rounded-2xl" />
+                                <Skeleton className="h-28 w-full rounded-2xl" />
+                                <Skeleton className="h-28 w-full rounded-2xl" />
+                              </div>
+                            </CardContent>
+                          </Card>
+                        }
+                      >
+                        <LazyPipelinePlaceholder />
+                      </Suspense>
+                    ) : deviceProfile.isMobileLayout ? (
+                      <div className="flex min-h-[calc(100vh-220px)] flex-col gap-4">
+                        <ManualDraftList
+                          items={draftItems}
+                          selectedDraftId={selectedItem?.draft.id ?? null}
+                          onSelect={setSelectedDraftId}
+                          onRemoveItem={removeDraftItem}
+                          mobileLayout
+                        />
+                        <div className="min-h-0 rounded-2xl border border-border/70 bg-background/90 shadow-lg shadow-slate-900/5 backdrop-blur">
+                            <ManualWorkspace
+                              selectedItem={selectedItem}
+                              onMasksCommit={commitMasks}
+                              onCropCommit={commitCrop}
+                              generationMode={workbenchSettings.cardGenerationMode}
+                              focusShortcutEnabled={!exportDialogOpen}
+                              onEditorHoverChange={setEditorHoverActive}
+                              readOnlyInWorkspace={deviceProfile.isMobileDevice}
+                              touchOptimized={deviceProfile.isTouchLike}
+                              onPreviousItem={selectPreviousDraft}
+                              onNextItem={selectNextDraft}
+                              canGoPrevious={selectedDraftIndex > 0}
+                              canGoNext={selectedDraftIndex >= 0 && selectedDraftIndex < activeDraftItems.length - 1}
+                              isGlobalDragActive={isDragActive}
+                            />
+                        </div>
+                      </div>
+                    ) : (
+                      <div ref={manualLayoutRef} className="h-[calc(100vh-220px)] min-h-[calc(100vh-220px)]">
+                        <ResizablePanelGroup
+                          orientation="horizontal"
+                          className="h-full min-h-[calc(100vh-220px)] rounded-2xl border border-border/70 bg-background/90 shadow-lg shadow-slate-900/5 backdrop-blur"
+                        >
+                          <ResizablePanel defaultSize={resolvedManualPanelLayout[0]} minSize={manualProjectMinPercent} className="min-h-0">
+                            <div
+                              className={editorHoverActive ? 'h-full min-h-0 w-full transition-[opacity,filter] duration-200 opacity-55 saturate-75' : 'h-full min-h-0 w-full transition-[opacity,filter] duration-200'}
+                            >
+                              <ManualDraftList items={draftItems} selectedDraftId={selectedItem?.draft.id ?? null} onSelect={setSelectedDraftId} onRemoveItem={removeDraftItem} />
+                            </div>
+                          </ResizablePanel>
+                          <ResizableHandle withHandle />
+                          <ResizablePanel defaultSize={resolvedManualPanelLayout[1]} minSize={100 - Math.min(60, resolvedManualPanelLayout[0])} className="min-h-0">
+                            <ManualWorkspace
+                              selectedItem={selectedItem}
+                              onMasksCommit={commitMasks}
+                              onCropCommit={commitCrop}
+                              generationMode={workbenchSettings.cardGenerationMode}
+                              focusShortcutEnabled={!exportDialogOpen}
+                              onEditorHoverChange={setEditorHoverActive}
+                              onPreviousItem={selectPreviousDraft}
+                              onNextItem={selectNextDraft}
+                              canGoPrevious={selectedDraftIndex > 0}
+                              canGoNext={selectedDraftIndex >= 0 && selectedDraftIndex < activeDraftItems.length - 1}
+                              isGlobalDragActive={isDragActive}
+                            />
+                          </ResizablePanel>
+                        </ResizablePanelGroup>
+                      </div>
+                    )}
 
-      <div className={deviceProfile.isMobileLayout ? 'mx-auto flex min-h-screen max-w-[1600px] flex-col gap-4 px-4 py-4 pb-24 md:px-6' : 'mx-auto flex min-h-screen max-w-[1600px] flex-col gap-4 px-4 py-4 md:px-6'}>
-        <div className={!deviceProfile.isMobileDevice && editorHoverActive ? 'transition-[opacity,filter] duration-200 opacity-55 saturate-75' : 'transition-[opacity,filter] duration-200'}>
-          <WorkbenchHeader
-            workspaceMode={workspaceMode}
-            onWorkspaceModeChange={setWorkspaceMode}
-            manualGuide={manualGuide}
-            loadingKey={loadingKey}
-            onUploadImages={() => fileInputRef.current?.click()}
-            onCapturePhoto={deviceProfile.canReliableCameraCapture ? () => cameraInputRef.current?.click() : undefined}
-            onImportFiles={() => fileManagerInputRef.current?.click()}
-            onImportFolder={() => folderInputRef.current?.click()}
-            onRestoreProject={() => void run('restore-project', restoreSavedProject)}
-            onRefreshAnki={() => void run('refresh-anki', () => refreshAnkiConnection({ source: 'manual' }))}
-            onOptimizeProject={() => void run('optimize-project', optimizeCurrentProjectForSpeed)}
-            onClearProject={() => setClearConfirmOpen(true)}
-            onExportDeckPoolBackup={deviceProfile.isMobileDevice ? exportDeckPoolBackupFile : undefined}
-            onImportDeckPoolBackup={deviceProfile.isMobileDevice ? () => deckPoolInputRef.current?.click() : undefined}
-            onGuideAction={(action) => void runGuideAction(action)}
-            showAnkiActions={deviceProfile.canDirectAnki}
-            mobileOptimized={deviceProfile.isMobileDevice}
-            ankiHelpOpen={ankiHelpOpen}
-            onAnkiHelpOpenChange={setAnkiHelpOpen}
-            onOpenAnkiHelp={() => setAnkiHelpOpen(true)}
+                    <AnimatePresence>
+                      {showWorkspaceProcessingOverlay ? (
+                        <motion.div
+                          initial={{ opacity: 0 }}
+                          animate={{ opacity: 1, pointerEvents: 'auto' }}
+                          exit={{ opacity: 0, pointerEvents: 'none' }}
+                          transition={{ duration: 0.35, ease: 'easeOut' }}
+                          className="absolute inset-0 z-30 flex items-center justify-center rounded-2xl border border-border/60 bg-background/78 backdrop-blur-sm pointer-events-auto"
+                        >
+                          <motion.div
+                            initial={{ scale: 0.95, opacity: 0 }}
+                            animate={{ scale: 1, opacity: 1 }}
+                            exit={{ scale: 0.95, opacity: 0 }}
+                            transition={{ duration: 0.35, ease: 'easeOut' }}
+                            className="flex w-full max-w-xl flex-col gap-4 rounded-3xl border border-border/60 bg-background/96 p-5 shadow-xl shadow-slate-900/5 pointer-events-auto"
+                          >
+                            <div className="flex items-center gap-3">
+                              <Skeleton className="size-10 rounded-2xl" />
+                              <div className="flex min-w-0 flex-1 flex-col gap-2">
+                                <Skeleton className="h-5 w-36 rounded-full" />
+                                <div className="text-sm text-muted-foreground">{workspaceProcessingText}</div>
+                              </div>
+                            </div>
+                            <div className="grid gap-3 md:grid-cols-2">
+                              <Skeleton className="h-28 w-full rounded-2xl" />
+                              <Skeleton className="h-28 w-full rounded-2xl" />
+                            </div>
+                          </motion.div>
+                        </motion.div>
+                      ) : null}
+                    </AnimatePresence>
+                  </div>
+                )}
+
+                {deviceProfile.isMobileLayout ? (
+                  <div className="flex flex-col gap-1 px-1 pb-1 text-[11px] leading-5 text-muted-foreground/72">
+                    <div className="flex items-start gap-1.5">
+                      <BadgeCheckIcon className="mt-[1px] size-3.5 shrink-0 text-muted-foreground/65" />
+                      <span>Web 加载处理库，图片只在当前设备本地处理。</span>
+                    </div>
+                    <div className="flex items-start gap-1.5">
+                      <BadgeCheckIcon className="mt-[1px] size-3.5 shrink-0 text-muted-foreground/65" />
+                      <span>支持 PWA，可安装到桌面或主屏。</span>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="px-1 pb-1 text-[11px] leading-5 text-muted-foreground/70">
+                    Web 本地处理。这是基于 React + Vite 的网页工具；图片只会进入当前浏览器内存，处理和导出都在你的设备上完成。支持安装到桌面或主屏。
+                  </div>
+                )}
+              </div>
+
+              {!deviceProfile.isMobileDevice ? <StatusCapsule tasks={orderedStatusTasks} side="left" /> : null}
+
+              {workspaceMode === 'manual' ? (
+                <div className={deviceProfile.isMobileLayout ? 'pointer-events-none fixed inset-x-4 bottom-4 z-50' : 'pointer-events-none fixed right-4 bottom-4 z-50'}>
+                  <Button
+                    type="button"
+                    size="lg"
+                    className={deviceProfile.isMobileLayout ? 'pointer-events-auto h-12 w-full rounded-2xl shadow-lg shadow-slate-900/10 cursor-pointer overflow-hidden bg-foreground text-background hover:bg-foreground/90 active:scale-[0.98] trs-all-400' : 'pointer-events-auto rounded-full shadow-lg shadow-slate-900/10 cursor-pointer overflow-hidden bg-foreground text-background hover:h-12 hover:px-4 hover:bg-foreground/90 hover:-translate-y-0.5 active:scale-[0.98] trs-all-400'}
+                    onClick={() => {
+                      if (exportQueue.length === 0) {
+                        updateStatusTask('export', { state: 'error', progress: 100, detail: '当前还没有可以进入导出流程的图片。' })
+                      }
+                      setExportDialogRequested(true)
+                      startExportFlow()
+                    }}
+                    disabled={exportQueue.length === 0}
+                  >
+                    <DownloadIcon data-icon="inline-start " />
+                    {exportButtonLabel}
+                    <span className="rounded-full bg-background/16 px-2 py-0.5 text-xs text-background">{exportQueue.length}</span>
+                  </Button>
+                </div>
+              ) : null}
+            </PageTransition>
+          )}
+        </AnimatePresence>
+
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept={MOBILE_IMAGE_ACCEPT}
+          multiple
+          className="hidden"
+          onChange={(event) => void onFileInputChange(event)}
+        />
+        <input
+          ref={fileManagerInputRef}
+          type="file"
+          multiple
+          className="hidden"
+          onChange={(event) => void onFileManagerInputChange(event)}
+        />
+        <input
+          ref={cameraInputRef}
+          type="file"
+          accept={MOBILE_IMAGE_ACCEPT}
+          capture="environment"
+          className="hidden"
+          onChange={(event) => void onFileInputChange(event)}
+        />
+        <input
+          ref={folderInputRef}
+          type="file"
+          accept={MOBILE_IMAGE_ACCEPT}
+          multiple
+          className="hidden"
+          onChange={(event) => void onFolderInputChange(event)}
+          {...({ webkitdirectory: '', directory: '' } as DirectoryInputProps)}
+        />
+        <input
+          ref={deckPoolInputRef}
+          type="file"
+          accept=".json,application/json"
+          className="hidden"
+          onChange={(event) => void onDeckPoolBackupInputChange(event)}
+        />
+
+        <ImportCompressionOverlay open={showImportCompressionOverlay} progress={importProgress} />
+        <ProjectOptimizationOverlay open={loadingKey === 'optimize-project'} progress={optimizeProgress} />
+
+        {settingsDialogRequested ? (
+          <Suspense fallback={settingsOpen ? <DeferredDialogFallback title="正在打开设置" description="正在加载设置面板和本地预览。" /> : null}>
+            <LazyWorkbenchSettingsDialog
+              open={settingsOpen}
+              onOpenChange={setSettingsOpen}
+              settings={workbenchSettings}
+              onSettingsChange={(next) => setWorkbenchSettings(normalizeWorkbenchSettings(next))}
+              previewBlob={settingsPreviewItem?.image_blob ?? null}
+              showTrigger={false}
+            />
+          </Suspense>
+        ) : null}
+
+        {exportDialogRequested ? (
+          <ExportFlowDialog
+            open={exportDialogOpen}
+            onOpenChange={handleExportDialogChange}
+            stage={exportStage}
+            queue={exportQueue}
+            currentIndex={exportIndex}
+            reviewedDraftIds={reviewedDraftIds}
+            deckInput={deckInput}
+            tagsInput={tagsInput}
+            onDeckInputChange={setDeckInput}
+            onTagsInputChange={setTagsInput}
+            deckOptions={deckOptions}
+            deckQuickPicks={deckQuickPicks}
+            ankiState={ankiState}
+            onRefreshDecks={() => void run('refresh-anki', () => refreshAnkiConnection({ source: 'manual' }))}
+            onCreateDeck={() => void run('create-deck', () => createCurrentDeckInAnki(deckInput))}
+            onConfirmCurrent={() => void run('confirm-export-card', confirmCurrentExportCard)}
+            onPickDeckInBrowser={(deck) => void run('save-export-card-deck', async () => {
+              setDeckInput(deck)
+              await saveCurrentExportCardDraft({ deck })
+            })}
+            onPrevious={goToPreviousExportCard}
+            onNext={goToNextExportCard}
+            onSelectIndex={(index) => void run('switch-export-card', async () => {
+              await selectExportCardWithAutoSave(index)
+            })}
+            onBackToReview={() => setExportStage('review')}
+            quality={quality}
+            onQualityChange={setQuality}
+            onExportToAnki={() => void exportAllFromFlow('anki')}
+            onExportToApkg={() => void exportAllFromFlow('apkg')}
+            onExportToImageGroup={() => void exportAllFromFlow('image-group')}
+            onMasksCommit={commitMasks}
+            onCropCommit={commitCrop}
+            isRefreshingDecks={loadingKey === 'refresh-anki' || ankiState.level === 'loading'}
+            isCreatingDeck={loadingKey === 'create-deck'}
+            isExportingAnki={loadingKey === 'manual-export-anki'}
+            isExportingApkg={loadingKey === 'manual-export-apkg'}
+            isExportingImageGroup={loadingKey === 'manual-export-image-group'}
+            imageGroupFormat={workbenchSettings.imageGroupExportFormat}
+            imageGroupQuality={workbenchSettings.imageGroupExportQuality}
+            onImageGroupFormatChange={(value) =>
+              setWorkbenchSettings((current) => normalizeWorkbenchSettings({ ...current, imageGroupExportFormat: value }))
+            }
+            onImageGroupQualityChange={(value) =>
+              setWorkbenchSettings((current) => normalizeWorkbenchSettings({ ...current, imageGroupExportQuality: value }))
+            }
+            allowedExportFormats={exportFormatPolicy.allowedFormats}
+            exportFormatLockReason={exportFormatPolicy.lockedReason}
+            exportFormatSummary={exportFormatPolicy.summary}
+            allowDirectAnki={deviceProfile.canDirectAnki}
+            deckPickerMode={deviceProfile.canDirectAnki ? 'anki' : 'local'}
             touchOptimized={deviceProfile.isTouchLike}
-            settingsAction={(
-              <Button
-                size="icon-sm"
-                variant="ghost"
-                className="trs-all-400 rounded-xl text-muted-foreground hover:-translate-y-0.5 hover:text-foreground active:scale-[0.97]"
+            onOpenAnkiHelp={() => setAnkiHelpOpen(true)}
+            generationMode={workbenchSettings.cardGenerationMode}
+          />
+        ) : null}
+
+        <AlertDialog open={clearConfirmOpen} onOpenChange={setClearConfirmOpen}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>确认清空当前项目？</AlertDialogTitle>
+              <AlertDialogDescription>
+                这会移除当前浏览器里保存的图片、遮罩、牌组和标签信息。已经导出的内容不会受影响。
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>先不清空</AlertDialogCancel>
+              <AlertDialogAction
                 onClick={() => {
-                  setSettingsDialogRequested(true)
-                  setSettingsOpen(true)
+                  setClearConfirmOpen(false)
+                  void run('clear-project', clearLocalProject)
                 }}
               >
-                <Settings2Icon />
-                <span className="sr-only">设置</span>
-              </Button>
-            )}
-            showModeTabs={ENABLE_WORKSPACE_MODE_SWITCH}
-            projectCompressionState={projectCompressionState}
-            projectCompressionCount={projectCompressionCount}
-          />
-        </div>
+                确认清空
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
 
-        {showWorkspaceLoadingShell ? (
-          <WorkspaceLoadingShell mobile={deviceProfile.isMobileLayout} />
-        ) : (
-          <div className="relative">
-            {workspaceMode === 'pipeline' ? (
-              <Suspense
-                fallback={
-                  <Card className="rounded-[28px] border border-border/70 bg-background/90 shadow-lg shadow-slate-900/5">
-                    <CardContent className="flex flex-col gap-4 p-5 md:p-6">
-                      <Skeleton className="h-7 w-44 rounded-full" />
-                      <Skeleton className="h-4 w-full max-w-2xl rounded-full" />
-                      <div className="grid gap-3 md:grid-cols-3">
-                        <Skeleton className="h-28 w-full rounded-2xl" />
-                        <Skeleton className="h-28 w-full rounded-2xl" />
-                        <Skeleton className="h-28 w-full rounded-2xl" />
-                      </div>
-                    </CardContent>
-                  </Card>
-                }
+        <AlertDialog open={hugeImportPrompt.open} onOpenChange={(open) => setHugeImportPrompt((prev) => ({ ...prev, open }))}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>确认批量导入文件？</AlertDialogTitle>
+              <AlertDialogDescription>
+                您一次性选中了 {hugeImportPrompt.files?.length} 个文件。大批量导入因为渲染和压缩处理可能会增加设备发热或导致浏览器暂时响应缓慢。<br/><br/>这完全取决于您的设备性能。
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>暂不导入</AlertDialogCancel>
+              <AlertDialogAction onClick={() => void confirmHugeImport()}>
+                继续导入
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+
+        <AlertDialog
+          open={slowSavePrompt.open}
+          onOpenChange={(open) => setSlowSavePrompt((current) => ({ ...current, open }))}
+        >
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>检测到本地保存开始变慢</AlertDialogTitle>
+              <AlertDialogDescription>
+                最近一次单张图片编辑后的本地保存大约用了 {slowSavePrompt.elapsedMs}ms。
+                如果你感觉继续编辑开始变卡，可以直接把当前项目压到默认轻量档位。
+              </AlertDialogDescription>
+              <div className="text-xs leading-5 text-muted-foreground">
+                当前项目已经压缩过 {slowSavePrompt.compressionCount} 次。
+                {slowSavePrompt.compressionCount > 0 ? ' 已经压过后，这类提醒会比第一次更克制一些。' : ''}
+              </div>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel
+                onClick={() => setSlowSavePrompt((current) => ({ ...current, open: false }))}
               >
-                <LazyPipelinePlaceholder />
-              </Suspense>
-            ) : deviceProfile.isMobileLayout ? (
-              <div className="flex min-h-[calc(100vh-220px)] flex-col gap-4">
-                <ManualDraftList
-                  items={draftItems}
-                  selectedDraftId={selectedItem?.draft.id ?? null}
-                  onSelect={setSelectedDraftId}
-                  onRemoveItem={removeDraftItem}
-                  mobileLayout
-                />
-                <div className="min-h-0 rounded-2xl border border-border/70 bg-background/90 shadow-lg shadow-slate-900/5 backdrop-blur">
-                    <ManualWorkspace
-                      selectedItem={selectedItem}
-                      onMasksCommit={commitMasks}
-                      onCropCommit={commitCrop}
-                      generationMode={workbenchSettings.cardGenerationMode}
-                      focusShortcutEnabled={!exportDialogOpen}
-                      onEditorHoverChange={setEditorHoverActive}
-                      readOnlyInWorkspace={deviceProfile.isMobileDevice}
-                      touchOptimized={deviceProfile.isTouchLike}
-                      onPreviousItem={selectPreviousDraft}
-                      onNextItem={selectNextDraft}
-                      canGoPrevious={selectedDraftIndex > 0}
-                      canGoNext={selectedDraftIndex >= 0 && selectedDraftIndex < activeDraftItems.length - 1}
-                      isGlobalDragActive={isDragActive}
-                    />
-                </div>
-              </div>
-            ) : (
-              <div ref={manualLayoutRef} className="h-[calc(100vh-220px)] min-h-[calc(100vh-220px)]">
-                <ResizablePanelGroup
-                  orientation="horizontal"
-                  className="h-full min-h-[calc(100vh-220px)] rounded-2xl border border-border/70 bg-background/90 shadow-lg shadow-slate-900/5 backdrop-blur"
-                >
-                  <ResizablePanel defaultSize={resolvedManualPanelLayout[0]} minSize={manualProjectMinPercent} className="min-h-0">
-                    <div
-                      className={editorHoverActive ? 'h-full min-h-0 w-full transition-[opacity,filter] duration-200 opacity-55 saturate-75' : 'h-full min-h-0 w-full transition-[opacity,filter] duration-200'}
-                    >
-                      <ManualDraftList items={draftItems} selectedDraftId={selectedItem?.draft.id ?? null} onSelect={setSelectedDraftId} onRemoveItem={removeDraftItem} />
-                    </div>
-                  </ResizablePanel>
-                  <ResizableHandle withHandle />
-                  <ResizablePanel defaultSize={resolvedManualPanelLayout[1]} minSize={100 - Math.min(60, resolvedManualPanelLayout[0])} className="min-h-0">
-                    <ManualWorkspace
-                      selectedItem={selectedItem}
-                      onMasksCommit={commitMasks}
-                      onCropCommit={commitCrop}
-                      generationMode={workbenchSettings.cardGenerationMode}
-                      focusShortcutEnabled={!exportDialogOpen}
-                      onEditorHoverChange={setEditorHoverActive}
-                      onPreviousItem={selectPreviousDraft}
-                      onNextItem={selectNextDraft}
-                      canGoPrevious={selectedDraftIndex > 0}
-                      canGoNext={selectedDraftIndex >= 0 && selectedDraftIndex < activeDraftItems.length - 1}
-                      isGlobalDragActive={isDragActive}
-                    />
-                  </ResizablePanel>
-                </ResizablePanelGroup>
-              </div>
-            )}
+                先不处理
+              </AlertDialogCancel>
+              <AlertDialogAction
+                onClick={() => {
+                  setSlowSavePrompt({ open: false, elapsedMs: 0, itemCount: 0, compressionCount: projectCompressionCount })
+                  void run('optimize-project', optimizeCurrentProjectForSpeed)
+                }}
+              >
+                立即压缩当前项目
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
 
-            <AnimatePresence>
-              {showWorkspaceProcessingOverlay ? (
-                <motion.div
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1, pointerEvents: 'auto' }}
-                  exit={{ opacity: 0, pointerEvents: 'none' }}
-                  transition={{ duration: 0.35, ease: 'easeOut' }}
-                  className="absolute inset-0 z-30 flex items-center justify-center rounded-2xl border border-border/60 bg-background/78 backdrop-blur-sm pointer-events-auto"
-                >
-                  <motion.div
-                    initial={{ scale: 0.95, opacity: 0 }}
-                    animate={{ scale: 1, opacity: 1 }}
-                    exit={{ scale: 0.95, opacity: 0 }}
-                    transition={{ duration: 0.35, ease: 'easeOut' }}
-                    className="flex w-full max-w-xl flex-col gap-4 rounded-3xl border border-border/60 bg-background/96 p-5 shadow-xl shadow-slate-900/5 pointer-events-auto"
-                  >
-                    <div className="flex items-center gap-3">
-                      <Skeleton className="size-10 rounded-2xl" />
-                      <div className="flex min-w-0 flex-1 flex-col gap-2">
-                        <Skeleton className="h-5 w-36 rounded-full" />
-                        <div className="text-sm text-muted-foreground">{workspaceProcessingText}</div>
-                      </div>
-                    </div>
-                    <div className="grid gap-3 md:grid-cols-2">
-                      <Skeleton className="h-28 w-full rounded-2xl" />
-                      <Skeleton className="h-28 w-full rounded-2xl" />
-                    </div>
-                  </motion.div>
-                </motion.div>
-              ) : null}
-            </AnimatePresence>
-          </div>
-        )}
-
-        {deviceProfile.isMobileLayout ? (
-          <div className="flex flex-col gap-1 px-1 pb-1 text-[11px] leading-5 text-muted-foreground/72">
-            <div className="flex items-start gap-1.5">
-              <BadgeCheckIcon className="mt-[1px] size-3.5 shrink-0 text-muted-foreground/65" />
-              <span>Web 加载处理库，图片只在当前设备本地处理。</span>
-            </div>
-            <div className="flex items-start gap-1.5">
-              <BadgeCheckIcon className="mt-[1px] size-3.5 shrink-0 text-muted-foreground/65" />
-              <span>支持 PWA，可安装到桌面或主屏。</span>
-            </div>
-          </div>
-        ) : (
-          <div className="px-1 pb-1 text-[11px] leading-5 text-muted-foreground/70">
-            Web 本地处理。这是基于 React + Vite 的网页工具；图片只会进入当前浏览器内存，处理和导出都在你的设备上完成。支持安装到桌面或主屏。
-          </div>
-        )}
+        <AlertDialog
+          open={exportCleanupPrompt.open}
+          onOpenChange={(open) => {
+            setExportCleanupPrompt((current) => ({ ...current, open }))
+          }}
+        >
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>导出已完成，要清掉这批项目吗？</AlertDialogTitle>
+              <AlertDialogDescription>
+                这只会把当前浏览器里刚刚导出的图片从项目列表里移除，不会影响你已经生成的卡包、图像组或已经写进 Anki 的内容。
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel
+                onClick={() => setExportCleanupPrompt({ open: false, draftIds: [] })}
+              >
+                先保留
+              </AlertDialogCancel>
+              <AlertDialogAction
+                onClick={() => {
+                  removeDraftItemsByIds(exportCleanupPrompt.draftIds)
+                  setExportCleanupPrompt({ open: false, draftIds: [] })
+                  toast.success('已清掉刚刚导出的项目', { description: '当前浏览器里的项目列表已经同步收干净。' })
+                }}
+              >
+                清掉已导出项目
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </div>
-
-      <ImportCompressionOverlay open={showImportCompressionOverlay} progress={importProgress} />
-      <ProjectOptimizationOverlay open={loadingKey === 'optimize-project'} progress={optimizeProgress} />
-
-      {settingsDialogRequested ? (
-        <Suspense fallback={settingsOpen ? <DeferredDialogFallback title="正在打开设置" description="正在加载设置面板和本地预览。" /> : null}>
-          <LazyWorkbenchSettingsDialog
-            open={settingsOpen}
-            onOpenChange={setSettingsOpen}
-            settings={workbenchSettings}
-            onSettingsChange={(next) => setWorkbenchSettings(normalizeWorkbenchSettings(next))}
-            previewBlob={settingsPreviewItem?.image_blob ?? null}
-            showTrigger={false}
-          />
-        </Suspense>
-      ) : null}
-
-      {!deviceProfile.isMobileDevice ? <StatusCapsule tasks={orderedStatusTasks} side="left" /> : null}
-
-      {workspaceMode === 'manual' ? (
-        <div className={deviceProfile.isMobileLayout ? 'pointer-events-none fixed inset-x-4 bottom-4 z-50' : 'pointer-events-none fixed right-4 bottom-4 z-50'}>
-          <Button
-            type="button"
-            size="lg"
-            className={deviceProfile.isMobileLayout ? 'pointer-events-auto h-12 w-full rounded-2xl shadow-lg shadow-slate-900/10 cursor-pointer overflow-hidden bg-foreground text-background hover:bg-foreground/90 active:scale-[0.98] trs-all-400' : 'pointer-events-auto rounded-full shadow-lg shadow-slate-900/10 cursor-pointer overflow-hidden bg-foreground text-background hover:h-12 hover:px-4 hover:bg-foreground/90 hover:-translate-y-0.5 active:scale-[0.98] trs-all-400'}
-            onClick={() => {
-              if (exportQueue.length === 0) {
-                updateStatusTask('export', { state: 'error', progress: 100, detail: '当前还没有可以进入导出流程的图片。' })
-              }
-              setExportDialogRequested(true)
-              startExportFlow()
-            }}
-            disabled={exportQueue.length === 0}
-          >
-            <DownloadIcon data-icon="inline-start " />
-            {exportButtonLabel}
-            <span className="rounded-full bg-background/16 px-2 py-0.5 text-xs text-background">{exportQueue.length}</span>
-          </Button>
-        </div>
-      ) : null}
-
-      {exportDialogRequested ? (
-        <ExportFlowDialog
-          open={exportDialogOpen}
-          onOpenChange={handleExportDialogChange}
-          stage={exportStage}
-          queue={exportQueue}
-          currentIndex={exportIndex}
-          reviewedDraftIds={reviewedDraftIds}
-          deckInput={deckInput}
-          tagsInput={tagsInput}
-          onDeckInputChange={setDeckInput}
-          onTagsInputChange={setTagsInput}
-          deckOptions={deckOptions}
-          deckQuickPicks={deckQuickPicks}
-          ankiState={ankiState}
-          onRefreshDecks={() => void run('refresh-anki', () => refreshAnkiConnection({ source: 'manual' }))}
-          onCreateDeck={() => void run('create-deck', () => createCurrentDeckInAnki(deckInput))}
-          onConfirmCurrent={() => void run('confirm-export-card', confirmCurrentExportCard)}
-          onPickDeckInBrowser={(deck) => void run('save-export-card-deck', async () => {
-            setDeckInput(deck)
-            await saveCurrentExportCardDraft({ deck })
-          })}
-          onPrevious={goToPreviousExportCard}
-          onNext={goToNextExportCard}
-          onSelectIndex={(index) => void run('switch-export-card', async () => {
-            await selectExportCardWithAutoSave(index)
-          })}
-          onBackToReview={() => setExportStage('review')}
-          quality={quality}
-          onQualityChange={setQuality}
-          onExportToAnki={() => void exportAllFromFlow('anki')}
-          onExportToApkg={() => void exportAllFromFlow('apkg')}
-          onExportToImageGroup={() => void exportAllFromFlow('image-group')}
-          onMasksCommit={commitMasks}
-          onCropCommit={commitCrop}
-          isRefreshingDecks={loadingKey === 'refresh-anki' || ankiState.level === 'loading'}
-          isCreatingDeck={loadingKey === 'create-deck'}
-          isExportingAnki={loadingKey === 'manual-export-anki'}
-          isExportingApkg={loadingKey === 'manual-export-apkg'}
-          isExportingImageGroup={loadingKey === 'manual-export-image-group'}
-          imageGroupFormat={workbenchSettings.imageGroupExportFormat}
-          imageGroupQuality={workbenchSettings.imageGroupExportQuality}
-          onImageGroupFormatChange={(value) =>
-            setWorkbenchSettings((current) => normalizeWorkbenchSettings({ ...current, imageGroupExportFormat: value }))
-          }
-          onImageGroupQualityChange={(value) =>
-            setWorkbenchSettings((current) => normalizeWorkbenchSettings({ ...current, imageGroupExportQuality: value }))
-          }
-          allowedExportFormats={exportFormatPolicy.allowedFormats}
-          exportFormatLockReason={exportFormatPolicy.lockedReason}
-          exportFormatSummary={exportFormatPolicy.summary}
-          allowDirectAnki={deviceProfile.canDirectAnki}
-          deckPickerMode={deviceProfile.canDirectAnki ? 'anki' : 'local'}
-          touchOptimized={deviceProfile.isTouchLike}
-          onOpenAnkiHelp={() => setAnkiHelpOpen(true)}
-          generationMode={workbenchSettings.cardGenerationMode}
-        />
-      ) : null}
-
-      <AlertDialog open={clearConfirmOpen} onOpenChange={setClearConfirmOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>确认清空当前项目？</AlertDialogTitle>
-            <AlertDialogDescription>
-              这会移除当前浏览器里保存的图片、遮罩、牌组和标签信息。已经导出的内容不会受影响。
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>先不清空</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={() => {
-                setClearConfirmOpen(false)
-                void run('clear-project', clearLocalProject)
-              }}
-            >
-              确认清空
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
-      <AlertDialog open={hugeImportPrompt.open} onOpenChange={(open) => setHugeImportPrompt((prev) => ({ ...prev, open }))}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>确认批量导入文件？</AlertDialogTitle>
-            <AlertDialogDescription>
-              您一次性选中了 {hugeImportPrompt.files?.length} 个文件。大批量导入因为渲染和压缩处理可能会增加设备发热或导致浏览器暂时响应缓慢。<br/><br/>这完全取决于您的设备性能。
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>暂不导入</AlertDialogCancel>
-            <AlertDialogAction onClick={() => void confirmHugeImport()}>
-              继续导入
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
-      <AlertDialog
-        open={slowSavePrompt.open}
-        onOpenChange={(open) => setSlowSavePrompt((current) => ({ ...current, open }))}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>检测到本地保存开始变慢</AlertDialogTitle>
-            <AlertDialogDescription>
-              最近一次单张图片编辑后的本地保存大约用了 {slowSavePrompt.elapsedMs}ms。
-              如果你感觉继续编辑开始变卡，可以直接把当前项目压到默认轻量档位。
-            </AlertDialogDescription>
-            <div className="text-xs leading-5 text-muted-foreground">
-              当前项目已经压缩过 {slowSavePrompt.compressionCount} 次。
-              {slowSavePrompt.compressionCount > 0 ? ' 已经压过后，这类提醒会比第一次更克制一些。' : ''}
-            </div>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel
-              onClick={() => setSlowSavePrompt((current) => ({ ...current, open: false }))}
-            >
-              先不处理
-            </AlertDialogCancel>
-            <AlertDialogAction
-              onClick={() => {
-                setSlowSavePrompt({ open: false, elapsedMs: 0, itemCount: 0, compressionCount: projectCompressionCount })
-                void run('optimize-project', optimizeCurrentProjectForSpeed)
-              }}
-            >
-              立即压缩当前项目
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
-      <AlertDialog
-        open={exportCleanupPrompt.open}
-        onOpenChange={(open) => {
-          setExportCleanupPrompt((current) => ({ ...current, open }))
-        }}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>导出已完成，要清掉这批项目吗？</AlertDialogTitle>
-            <AlertDialogDescription>
-              这只会把当前浏览器里刚刚导出的图片从项目列表里移除，不会影响你已经生成的卡包、图像组或已经写进 Anki 的内容。
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel
-              onClick={() => setExportCleanupPrompt({ open: false, draftIds: [] })}
-            >
-              先保留
-            </AlertDialogCancel>
-            <AlertDialogAction
-              onClick={() => {
-                removeDraftItemsByIds(exportCleanupPrompt.draftIds)
-                setExportCleanupPrompt({ open: false, draftIds: [] })
-                toast.success('已清掉刚刚导出的项目', { description: '当前浏览器里的项目列表已经同步收干净。' })
-              }}
-            >
-              清掉已导出项目
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-    </div>
     </MotionConfig>
   )
 }
