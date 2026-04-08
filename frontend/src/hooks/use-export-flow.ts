@@ -21,7 +21,7 @@ interface UseExportFlowParams {
     importedNoteId?: number | null
     lastImportedAt?: string | null
   }) => Promise<CardDraft | null>
-  exportDrafts: (targets: DraftListItem[], destination: ExportDestination) => Promise<{ successCount: number; failedCount: number }>
+  exportDrafts: (targets: DraftListItem[], destination: ExportDestination, quality: number) => Promise<{ successCount: number; failedCount: number }>
   run: (key: string, action: () => Promise<void>) => Promise<void>
 }
 
@@ -224,7 +224,7 @@ export function useExportFlow({
           }
         })
         .filter((item) => !item.image.ignored && item.draft.masks.length > 0 && Boolean(item.draft.deck?.trim()))
-      const result = await exportDrafts(targets, destination)
+      const result = await exportDrafts(targets, destination, quality)
       if (result.failedCount === 0) {
         setExportDialogOpen(false)
       }

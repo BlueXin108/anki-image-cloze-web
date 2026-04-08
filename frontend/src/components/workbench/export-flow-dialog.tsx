@@ -12,6 +12,7 @@ import {
   Layers3Icon,
   LinkIcon,
   PackageIcon,
+  SquarePenIcon,
   Settings2Icon,
   TagIcon,
   ZoomInIcon,
@@ -34,7 +35,6 @@ import { Field, FieldContent, FieldDescription, FieldGroup, FieldLabel } from '@
 import { Input } from '@/components/ui/input'
 import { Kbd } from '@/components/ui/kbd'
 import { Progress } from '@/components/ui/progress'
-import { ScrollArea } from '@/components/ui/scroll-area'
 import { Spinner } from '@/components/ui/spinner'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
@@ -89,6 +89,9 @@ interface ExportFlowDialogProps {
   touchOptimized?: boolean
   onOpenAnkiHelp?: () => void
   generationMode?: CardGenerationMode
+  onFocusModeChange?: (open: boolean) => void
+  onExportDeckPoolBackup?: () => void
+  onImportDeckPoolBackup?: () => void
 }
 
 function imageLabel(item: DraftListItem): string {
@@ -381,6 +384,7 @@ function ThumbnailQueue({
   currentDeckInput?: string
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null)
+  const dragStateRef = useRef<{ pointerId: number; startX: number; startScrollLeft: number } | null>(null)
 
   useEffect(() => {
     const current = queue[currentIndex]
@@ -395,6 +399,32 @@ function ThumbnailQueue({
 
   const reviewed = new Set(reviewedDraftIds)
 
+  const beginDragScroll = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (event.pointerType === 'mouse' && event.button !== 0) return
+    dragStateRef.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startScrollLeft: event.currentTarget.scrollLeft,
+    }
+    event.currentTarget.setPointerCapture(event.pointerId)
+  }
+
+  const moveDragScroll = (event: React.PointerEvent<HTMLDivElement>) => {
+    const state = dragStateRef.current
+    if (!state || state.pointerId !== event.pointerId) return
+    const deltaX = event.clientX - state.startX
+    event.currentTarget.scrollLeft = state.startScrollLeft - deltaX
+  }
+
+  const endDragScroll = (event: React.PointerEvent<HTMLDivElement>) => {
+    const state = dragStateRef.current
+    if (!state || state.pointerId !== event.pointerId) return
+    dragStateRef.current = null
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId)
+    }
+  }
+
   return (
     <div className={cn('flex flex-col', compact ? 'gap-1.5' : 'gap-2')}>
       <div className={cn('flex items-center justify-between text-muted-foreground', compact ? 'text-[11px]' : 'text-xs')}>
@@ -404,30 +434,50 @@ function ThumbnailQueue({
       <div className="relative overflow-hidden rounded-xl border border-border/60 bg-muted/10">
         <div className="pointer-events-none absolute top-0 left-0 z-10 h-full w-8 bg-gradient-to-r from-background to-transparent" />
         <div className="pointer-events-none absolute top-0 right-0 z-10 h-full w-8 bg-gradient-to-l from-background to-transparent" />
-        <ScrollArea className="w-full">
-          <div ref={containerRef} className={cn('flex gap-2', compact ? 'px-2.5 py-2' : 'px-3 py-2.5')}>
+        <div
+          ref={containerRef}
+          className={cn(
+            'flex overflow-x-auto overflow-y-hidden gap-2 whitespace-nowrap select-none',
+            compact ? 'px-2.5 py-2' : 'px-3 py-2.5',
+          )}
+          style={{ scrollbarWidth: 'none' }}
+          onPointerDown={beginDragScroll}
+          onPointerMove={moveDragScroll}
+          onPointerUp={endDragScroll}
+          onPointerCancel={endDragScroll}
+          onPointerLeave={endDragScroll}
+        >
             {queue.map((item, index) => {
               const isCurrent = index === currentIndex
               const hasDraftDeck = !!item.draft.deck?.trim()
               const isDone = reviewed.has(item.draft.id) || (isCurrent ? !!currentDeckInput?.trim() : hasDraftDeck)
               return (
-                <button
+                <motion.button
+                  layout
                   type="button"
                   key={item.draft.id}
                   data-draft-id={item.draft.id}
+                  data-telemetry-id="export-queue-item"
                   onClick={() => onSelectIndex?.(index)}
                   aria-pressed={isCurrent}
                   className={cn(
                     'relative shrink-0 rounded-xl border p-1.5 text-left transition',
                     compact ? 'w-14' : 'w-16',
                     isCurrent
-                      ? 'border-amber-400 bg-amber-50/60 shadow-sm'
+                      ? 'border-transparent shadow-sm'
                       : isDone
                         ? 'border-border/70 bg-background/90'
                         : 'border-border/60 bg-background/70 opacity-85',
                     onSelectIndex && 'cursor-pointer',
                   )}
                 >
+                  {isCurrent ? (
+                    <motion.div
+                      layoutId="export-queue-active-pill"
+                      className="absolute inset-0 z-0 rounded-xl border border-amber-400 bg-amber-50/60 ring-1 ring-amber-300/40"
+                      transition={{ type: 'spring', stiffness: 500, damping: 30 }}
+                    />
+                  ) : null}
                   <div className="relative overflow-hidden rounded-xl border border-border/60 bg-background">
                     {item.image.source_url ? (
                       <img
@@ -449,16 +499,15 @@ function ThumbnailQueue({
                     ) : null}
                   </div>
                   <div
-                    className={cn('mt-1 max-w-full truncate text-muted-foreground', compact ? 'text-[9px]' : 'text-[10px]')}
+                    className={cn('relative z-10 mt-1 max-w-full truncate text-muted-foreground', compact ? 'text-[9px]' : 'text-[10px]')}
                     title={item.image.source_path}
                   >
                     {index + 1}. {truncatedImageLabel(item, compact ? 20 : 24)}
                   </div>
-                </button>
+                </motion.button>
               )
             })}
-          </div>
-        </ScrollArea>
+        </div>
       </div>
     </div>
   )
@@ -475,6 +524,7 @@ function ExportPreviewPane({
   touchOptimized = false,
   compact = false,
   generationMode = 'hide-all-reveal-current',
+  onFocusModeChange,
 }: {
   item: DraftListItem | null
   onMasksCommit: (masks: DraftListItem['draft']['masks']) => Promise<void>
@@ -486,8 +536,18 @@ function ExportPreviewPane({
   touchOptimized?: boolean
   compact?: boolean
   generationMode?: CardGenerationMode
+  onFocusModeChange?: (open: boolean) => void
 }) {
   const [focusOpen, setFocusOpen] = useState(false)
+  const focusStateReadyRef = useRef(false)
+
+  useEffect(() => {
+    if (!focusStateReadyRef.current) {
+      focusStateReadyRef.current = true
+      return
+    }
+    onFocusModeChange?.(focusOpen)
+  }, [focusOpen, onFocusModeChange])
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -518,8 +578,8 @@ function ExportPreviewPane({
                   已做安全预览。详细修改请进入独立编辑层。
                 </CardDescription>
               </div>
-              <Button size="sm" className="h-8 rounded-xl px-3 text-[12px] font-medium shrink-0 bg-primary/95 text-primary-foreground shadow-sm hover:bg-primary" onClick={() => setFocusOpen(true)}>
-                <ZoomInIcon data-icon="inline-start" className="size-3.5" />
+              <Button size="sm" className="h-9 rounded-xl px-3 text-[12px] font-medium shrink-0 bg-primary/95 text-primary-foreground shadow-sm hover:bg-primary" onClick={() => setFocusOpen(true)}>
+                <SquarePenIcon data-icon="inline-start" className="size-3.5" />
                 聚焦编辑
               </Button>
             </div>
@@ -556,8 +616,8 @@ function ExportPreviewPane({
               <CardTitle className="truncate" title={item.image.source_path}>{truncatedImageLabel(item, 52)}</CardTitle>
               <CardDescription>左侧独立预览。按 <Kbd>Q</Kbd> 可直接打开聚焦编辑。</CardDescription>
             </div>
-            <Button variant="default" size="sm" className="rounded-full shadow-sm" onClick={() => setFocusOpen(true)}>
-              <ZoomInIcon data-icon="inline-start" />
+            <Button variant="default" size="sm" className={cn('rounded-full shadow-sm', touchOptimized && 'h-10 px-4')} onClick={() => setFocusOpen(true)}>
+              {touchOptimized ? <SquarePenIcon data-icon="inline-start" /> : <ZoomInIcon data-icon="inline-start" />}
               聚焦编辑（Q）
             </Button>
           </div>
@@ -658,6 +718,9 @@ export function ExportFlowDialog({
   touchOptimized = false,
   onOpenAnkiHelp,
   generationMode = 'hide-all-reveal-current',
+  onFocusModeChange,
+  onExportDeckPoolBackup,
+  onImportDeckPoolBackup,
 }: ExportFlowDialogProps) {
   const currentItem = queue[currentIndex] ?? null
   const reviewedCount = reviewedDraftIds.length
@@ -782,6 +845,7 @@ export function ExportFlowDialog({
             </DialogPrimitive.Overlay>
             <DialogPrimitive.Content asChild forceMount>
               <div 
+                data-telemetry-section="export-flow"
                 className={cn(
                   "fixed inset-0 z-[100] flex pointer-events-none",
                   isMobileDialog ? "items-end" : "items-center justify-center"
@@ -877,6 +941,7 @@ export function ExportFlowDialog({
                         touchOptimized={touchOptimized}
                         compact={isMobileDialog}
                         generationMode={generationMode}
+                        onFocusModeChange={onFocusModeChange}
                       />
                     )}
 
@@ -922,6 +987,8 @@ export function ExportFlowDialog({
                               onPickDeckInBrowser?.(deck)
                             }}
                             closeBrowserOnPick
+                            onExportDeckPoolBackup={onExportDeckPoolBackup}
+                            onImportDeckPoolBackup={onImportDeckPoolBackup}
                           />
                           <div className="h-px bg-border/60 -mx-1" />
                           <FieldGroup>

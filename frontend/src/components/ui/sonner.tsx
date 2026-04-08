@@ -39,6 +39,7 @@ const Toaster = ({ ...props }: ToasterProps) => {
         } as React.CSSProperties
       }
       toastOptions={{
+        duration: 4000,
         classNames: {
           toast: "cn-toast pointer-events-auto",
           closeButton: "cn-toast-close pointer-events-auto",

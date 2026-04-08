@@ -2,6 +2,7 @@ import React, {Suspense, lazy, memo, useEffect, useState} from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
 	BookOpenTextIcon,
+	CameraIcon,
 	CheckIcon,
 	ChevronDownIcon,
 	ChevronUpIcon,
@@ -26,7 +27,6 @@ import {
 	Card,
 	CardContent,
 	CardDescription,
-	CardTitle,
 } from "@/components/ui/card";
 import {
 	DropdownMenu,
@@ -69,6 +69,7 @@ interface WorkbenchHeaderProps {
 	manualGuide: ManualGuide;
 	loadingKey: string | null;
 	onUploadImages: () => void;
+	onCapturePhoto?: () => void;
 	onImportFiles?: () => void;
 	onImportFolder: () => void;
 	onRestoreProject: () => void;
@@ -111,9 +112,12 @@ const AnkiIcon = memo(({className}: {className?: string}) => (
 ));
 
 const MainIcon = memo(() => (
-	<div className="flex size-11 shrink-0 items-center justify-center rounded-2xl border border-border/70 bg-muted/35 text-foreground">
+	<motion.div 
+		layoutId="header-icon"
+		className="flex size-11 shrink-0 items-center justify-center rounded-2xl border border-border/70 bg-muted/35 text-foreground"
+	>
 		<AnkiIcon className="size-6 text-foreground/80" />
-	</div>
+	</motion.div>
 ));
 
 // --- 静态数据提取 ---
@@ -199,6 +203,7 @@ export const WorkbenchHeader = memo(function WorkbenchHeader({
 	manualGuide,
 	loadingKey,
 	onUploadImages,
+	onCapturePhoto,
 	onImportFiles,
 	onImportFolder,
 	onRestoreProject,
@@ -305,7 +310,7 @@ export const WorkbenchHeader = memo(function WorkbenchHeader({
 					: "";
 
 	return (
-		<Card className="overflow-hidden border-none bg-white/60 outline-0 ring-0 rounded-md">
+		<Card data-telemetry-section="header" className="overflow-hidden border-none bg-white/60 outline-0 ring-0 rounded-md">
 			<CardContent className="px-4">
 				<div
 					className={cn(
@@ -316,9 +321,12 @@ export const WorkbenchHeader = memo(function WorkbenchHeader({
 						<MainIcon />
 						<div className="min-w-0">
 							<div className="flex flex-wrap items-center gap-2">
-								<CardTitle className="text-lg tracking-tight md:text-lg">
+								<motion.h3 
+									layoutId="header-title"
+									className="text-lg font-semibold tracking-tight md:text-lg text-foreground"
+								>
 									Anki-图像遮罩工具
-								</CardTitle>
+								</motion.h3>
 								<Tooltip>
 									<TooltipTrigger asChild>
 										<button type="button" className="cursor-help text-muted-foreground trs-all-400 hover:text-foreground">
@@ -490,23 +498,59 @@ export const WorkbenchHeader = memo(function WorkbenchHeader({
 							</Tabs>
 						) : null}
 
-						<div className="grid grid-cols-2 gap-2">
-							<Button
-								size="default"
-								className="trs-all-400 h-10 min-w-0 rounded-xl px-3 sm:px-4 border border-transparent hover:-translate-y-0.5 active:scale-[0.98] hover:bg-background hover:text-primary hover:border-border"
-								onClick={onUploadImages}>
-								<UploadIcon className="size-4" data-icon="inline-start" />
-								{mobileOptimized ? "系统相册" : "上传图片"}
-							</Button>
-							<Button
-								size="default"
-								variant="secondary"
-								className="trs-all-400 h-10 min-w-0 rounded-xl px-3 sm:px-4 border border-transparent hover:-translate-y-0.5 active:scale-[0.98] hover:bg-foreground hover:text-background hover:border-border"
-								onClick={mobileOptimized ? onImportFiles : onImportFolder}>
-								<FolderUpIcon className="size-4" data-icon="inline-start" />
-								{mobileOptimized ? "文件管理器" : "导入文件夹"}
-							</Button>
-						</div>
+						{mobileOptimized ? (
+							<div className="flex flex-col gap-2">
+								<Button
+									size="default"
+									className="trs-all-400 h-10 min-w-0 rounded-xl px-3 sm:px-4 border border-transparent hover:-translate-y-0.5 active:scale-[0.98] hover:bg-background hover:text-primary hover:border-border"
+									onClick={onUploadImages}>
+									<UploadIcon className="size-4" data-icon="inline-start" />
+									系统相册
+								</Button>
+								<div className={cn('grid gap-2', onCapturePhoto ? 'grid-cols-2' : 'grid-cols-1')}>
+									{onCapturePhoto ? (
+										<Button
+											size="default"
+											variant="secondary"
+											className="trs-all-400 h-10 min-w-0 rounded-xl px-3 sm:px-4 border border-transparent text-muted-foreground hover:-translate-y-0.5 active:scale-[0.98] hover:bg-foreground hover:text-background hover:border-border"
+											onClick={onCapturePhoto}>
+											<CameraIcon className="size-4" data-icon="inline-start" />
+											拍摄
+										</Button>
+									) : null}
+									<Button
+										size="default"
+										variant="secondary"
+										className="trs-all-400 h-10 min-w-0 rounded-xl px-3 sm:px-4 border border-transparent text-muted-foreground hover:-translate-y-0.5 active:scale-[0.98] hover:bg-foreground hover:text-background hover:border-border"
+										onClick={onImportFiles ?? onUploadImages}>
+										<FolderUpIcon className="size-4" data-icon="inline-start" />
+										文件管理器
+									</Button>
+								</div>
+							</div>
+						) : (
+							<div className="grid grid-cols-2 gap-2">
+								<motion.div layoutId="btn-upload">
+									<Button
+										size="default"
+										className="trs-all-400 h-10 w-full min-w-0 rounded-xl px-3 sm:px-4 border border-transparent hover:-translate-y-0.5 active:scale-[0.98] hover:bg-background hover:text-primary hover:border-border"
+										onClick={onUploadImages}>
+										<UploadIcon className="size-4" data-icon="inline-start" />
+										上传图片
+									</Button>
+								</motion.div>
+								<motion.div layoutId="btn-import-folder">
+									<Button
+										size="default"
+										variant="secondary"
+										className="trs-all-400 h-10 w-full min-w-0 rounded-xl px-3 sm:px-4 border border-transparent hover:-translate-y-0.5 active:scale-[0.98] hover:bg-foreground hover:text-background hover:border-border"
+										onClick={onImportFolder}>
+										<FolderUpIcon className="size-4" data-icon="inline-start" />
+										导入文件夹
+									</Button>
+								</motion.div>
+							</div>
+						)}
 					</div>
 
 					{workspaceMode === "manual" && !guideOpen ? (

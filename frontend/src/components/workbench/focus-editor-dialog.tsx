@@ -122,6 +122,7 @@ export function FocusEditorDialog({
       <DialogContent 
         showCloseButton={false}
         overlayClassName={overlayClassName}
+        data-telemetry-section="focus-editor"
         className={cn(
           "flex flex-col p-0 border-none bg-transparent shadow-none overflow-visible !ring-0",
           touchOptimized ? "h-fit max-h-[96dvh] w-[95vw] !max-w-[95vw]" : "h-[95vh] !w-[90vw] !max-w-[95vw]",

@@ -140,6 +140,11 @@ function pwaServiceWorkerPlugin(): Plugin {
 
 export default defineConfig({
   plugins: [react(), tailwindcss(), pwaServiceWorkerPlugin()],
+  optimizeDeps: {
+    // Keep Radix out of the prebundle cache so our compose-refs alias is
+    // always resolved from source instead of being frozen into .vite deps.
+    exclude: ['radix-ui', '@radix-ui/react-compose-refs'],
+  },
   build: {
     rollupOptions: {
       output: {
@@ -169,6 +174,7 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
+      'use-sync-external-store/shim': path.resolve(__dirname, './src/lib/use-sync-external-store-shim-fix.ts'),
       // Patch: redirect compose-refs to our fixed version that stabilises
       // ref callbacks, preventing the React 19 "Maximum update depth" crash
       // caused by Radix ScrollArea / Dialog internally calling setState

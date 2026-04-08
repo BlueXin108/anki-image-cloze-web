@@ -1446,9 +1446,9 @@ export function ImageEditor({
                   className="pointer-events-none absolute rounded-xl border-2 border-dashed border-amber-400/90 bg-amber-300/10"
                   style={toStyle(localCrop, imageWidth, imageHeight)}
                 >
-                  <div className="absolute -top-7 left-0 rounded-md bg-amber-950/90 px-2 py-1 text-xs font-medium text-amber-100">
-                    裁切框
-                  </div>
+                    <div className="absolute -top-5 left-0 rounded-sm bg-amber-950/90 px-1.5 py-0.5 text-[10px] leading-none font-medium text-amber-100">
+                      裁切框
+                    </div>
                   {!readOnly ? (
                     <div className="pointer-events-auto">
                       {(['n', 's', 'e', 'w', 'nw', 'ne', 'sw', 'se'] as const).map((handle) =>

@@ -3,7 +3,7 @@ export type WorkspaceMode = 'pipeline' | 'manual'
 export type DraftReviewStatus = 'draft' | 'imported' | 'packaged'
 export type ImageExportFormat = 'webp' | 'jpeg' | 'png'
 export type ImportCompressionFormat = 'webp' | 'jpeg'
-export type ImageSourceQuality = 'original' | 'import-compressed' | 'project-optimized' | 'legacy-unknown'
+export type ImageSourceQuality = 'original' | 'heif-converted' | 'import-compressed' | 'project-optimized' | 'legacy-unknown'
 export type CardGenerationMode = 'hide-all-reveal-current' | 'hide-current-only' | 'single-card-toggle'
 
 export interface CropSuggestion {

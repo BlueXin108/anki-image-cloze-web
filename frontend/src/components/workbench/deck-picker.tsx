@@ -4,6 +4,7 @@ import {
   ChevronsUpDownIcon,
   CircleAlertIcon,
   ClipboardPenIcon,
+  DownloadIcon,
   FolderTreeIcon,
   PlusIcon,
   RefreshCcwIcon,
@@ -11,6 +12,7 @@ import {
   SearchIcon,
   SparklesIcon,
   Layers3Icon,
+  UploadIcon,
 } from 'lucide-react'
 
 import type { AnkiConnectionState } from '@/types'
@@ -46,6 +48,8 @@ interface DeckPickerProps {
   browserDialogContentClassName?: string
   onBrowserDeckPick?: (deck: string) => void
   closeBrowserOnPick?: boolean
+  onExportDeckPoolBackup?: () => void
+  onImportDeckPoolBackup?: () => void
 }
 
 interface DeckTreeNode {
@@ -406,6 +410,8 @@ export function DeckPicker({
   browserDialogContentClassName,
   onBrowserDeckPick,
   closeBrowserOnPick = false,
+  onExportDeckPoolBackup,
+  onImportDeckPoolBackup,
 }: DeckPickerProps) {
   const [search, setSearch] = useState('')
   const [browserOpen, setBrowserOpen] = useState(false)
@@ -443,6 +449,7 @@ export function DeckPicker({
         </Button>
       </DialogTrigger>
       <DialogContent 
+        data-telemetry-section="deck-picker"
         overlayClassName={browserDialogOverlayClassName}
         className={cn(
           "flex h-[88vh] w-[94vw] max-w-[94vw] flex-col overflow-hidden p-0 sm:w-[82vw] sm:max-w-[82vw] lg:w-[72vw] lg:max-w-[72vw] xl:min-w-[60vw] xl:max-w-[68vw]",
@@ -509,7 +516,23 @@ export function DeckPicker({
                 : '先选择或先输入一个牌组'}
           </div>
 
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            {isLocalMode && (onExportDeckPoolBackup || onImportDeckPoolBackup) ? (
+              <div className="mr-1 flex flex-wrap items-center gap-1">
+                {onExportDeckPoolBackup ? (
+                  <Button variant="ghost" size="sm" className="h-8 px-2.5 text-[11px] font-normal text-muted-foreground" onClick={onExportDeckPoolBackup}>
+                    <DownloadIcon data-icon="inline-start" className="size-3.5" />
+                    导出牌组池
+                  </Button>
+                ) : null}
+                {onImportDeckPoolBackup ? (
+                  <Button variant="ghost" size="sm" className="h-8 px-2.5 text-[11px] font-normal text-muted-foreground" onClick={onImportDeckPoolBackup}>
+                    <UploadIcon data-icon="inline-start" className="size-3.5" />
+                    导入牌组池
+                  </Button>
+                ) : null}
+              </div>
+            ) : null}
             {!isLocalMode ? (
               <>
                 <Button variant="outline" onClick={onRefreshDecks}>

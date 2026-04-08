@@ -5,6 +5,7 @@ export interface DeviceProfile {
   isMobileDevice: boolean
   isMobileLayout: boolean
   canDirectAnki: boolean
+  canReliableCameraCapture: boolean
 }
 
 function detectDeviceProfile(): DeviceProfile {
@@ -14,6 +15,7 @@ function detectDeviceProfile(): DeviceProfile {
       isMobileDevice: false,
       isMobileLayout: false,
       canDirectAnki: true,
+      canReliableCameraCapture: false,
     }
   }
 
@@ -22,6 +24,18 @@ function detectDeviceProfile(): DeviceProfile {
   const maxTouchPoints = window.navigator.maxTouchPoints ?? 0
   const coarsePointer = window.matchMedia('(pointer: coarse)').matches
   const mobilePlatform = /Android|iPhone|iPad|iPod|Mobile|HarmonyOS/i.test(userAgent)
+  const isAndroid = /Android/i.test(userAgent)
+  const chromeMatch = userAgent.match(/Chrome\/(\d+)/i)
+  const chromeMajorVersion = chromeMatch ? Number.parseInt(chromeMatch[1] ?? '0', 10) : 0
+  const isChromeLike = /Chrome\//i.test(userAgent)
+  const isVia = /\bVia\b/i.test(userAgent)
+  const canReliableCameraCapture =
+    mobilePlatform &&
+    isAndroid &&
+    isChromeLike &&
+    !isVia &&
+    Number.isFinite(chromeMajorVersion) &&
+    chromeMajorVersion >= 100
   const isTouchLike = coarsePointer || maxTouchPoints > 0
   const isMobileLayout = width < 960
   const isMobileDevice = mobilePlatform || (isTouchLike && width < 1180)
@@ -31,6 +45,7 @@ function detectDeviceProfile(): DeviceProfile {
     isMobileDevice,
     isMobileLayout,
     canDirectAnki: !isMobileDevice,
+    canReliableCameraCapture,
   }
 }
 

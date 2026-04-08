@@ -1,13 +1,19 @@
 import {
+  BadgeCheckIcon,
   DownloadIcon,
-  ImageDownIcon,
   Settings2Icon,
-  Loader2Icon,
 } from 'lucide-react'
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState, startTransition, type ChangeEvent, type InputHTMLAttributes } from 'react'
 import { motion, AnimatePresence, MotionConfig } from 'framer-motion'
 import { toast } from 'sonner'
 
+import {
+  DeferredDialogFallback,
+  ImportCompressionOverlay,
+  ProjectOptimizationOverlay,
+  WorkspaceLoadingShell,
+  type ProcessingProgressView,
+} from '@/components/app/app-support'
 import { InlineEmphasis } from '@/components/workbench/inline-emphasis'
 import { ManualDraftList } from '@/components/workbench/manual-draft-list'
 import { StatusCapsule, type StatusTaskId, type StatusTaskState } from '@/components/workbench/status-capsule'
@@ -25,29 +31,30 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Progress } from '@/components/ui/progress'
-import { Skeleton } from '@/components/ui/skeleton'
+import { Card, CardContent } from '@/components/ui/card'
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable'
+import { Skeleton } from '@/components/ui/skeleton'
+import { useAnkiActions } from '@/hooks/use-anki-actions'
+import { useExportActions } from '@/hooks/use-export-actions'
 import { useExportFlow } from '@/hooks/use-export-flow'
+import { useImportWorkflow } from '@/hooks/use-import-workflow'
+import { useProjectPersistence } from '@/hooks/use-project-persistence'
+import { useProjectOptimization } from '@/hooks/use-project-optimization'
 import { useDeviceProfile } from '@/hooks/use-device-profile'
-import { api } from '@/lib/api'
 import { countGeneratedCards } from '@/lib/card-generation'
 import { downloadDeckPoolBackup, loadDeckPool, loadDeckQuickPicks, readDeckPoolBackup, rememberDeckName, rememberDeckNames, saveDeckPool } from '@/lib/deck-pool'
 import ankiHelpImage from '@/assets/ankiHelp-1.webp'
-import { transformImageBlob } from '@/lib/image-processing'
-import { buildDraftItemFromAsset, buildDraftItemsFromFiles, mergeImportedItems, preferredWorkspaceMode } from '@/lib/manual-project'
+import { buildDraftItemFromAsset, mergeImportedItems, preferredWorkspaceMode } from '@/lib/manual-project'
 import { releaseDraftItems } from '@/lib/project-store'
 import {
   DEFAULT_WORKBENCH_SETTINGS,
   loadWorkbenchSettings,
   normalizeWorkbenchSettings,
-  pickAvailableExportFormat,
   resolveExportFormatPolicy,
   saveWorkbenchSettings,
 } from '@/lib/workbench-settings'
-import { ankiLoadingState, classifyAnkiFailure, createInitialStatusTasks, EMPTY_ANKI_STATE, nowIso, replaceDraft, STATUS_TASK_ORDER, WORKSPACE_MODE_STORAGE_KEY } from '@/lib/workbench-state'
-import type { AnkiConnectionState, BBox, CardDraft, DraftListItem, WorkspaceMode, WorkbenchSettings } from '@/types'
+import { createInitialStatusTasks, EMPTY_ANKI_STATE, nowIso, replaceDraft, STATUS_TASK_ORDER, WORKSPACE_MODE_STORAGE_KEY } from '@/lib/workbench-state'
+import type { AnkiConnectionState, CardDraft, DraftListItem, WorkspaceMode, WorkbenchSettings } from '@/types'
 
 const LazyPipelinePlaceholder = lazy(async () => {
   const module = await import('@/components/workbench/pipeline-placeholder')
@@ -77,13 +84,7 @@ const SLOW_SAVE_REPEAT_TRIGGER_COUNT = 3
 const AUTO_OPTIMIZE_MAX_DIMENSION = DEFAULT_WORKBENCH_SETTINGS.importMaxDimension
 const AUTO_OPTIMIZE_QUALITY = DEFAULT_WORKBENCH_SETTINGS.importImageQuality / 100
 
-type ProcessingProgress = {
-  percent: number
-  completed: number
-  total: number
-  fileName: string
-  stageLabel: string
-}
+type ProcessingProgress = ProcessingProgressView
 
 type RecoverableProjectSummary = {
   itemCount: number
@@ -96,178 +97,6 @@ type PendingImageEditSaveMetric = {
   draftId: string
   fileLabel: string
   action: 'masks' | 'crop'
-}
-
-function WorkspaceLoadingShell({ mobile }: { mobile: boolean }) {
-  return (
-    <div className="flex flex-col gap-4">
-      <div className="rounded-2xl border border-border/70 bg-background/92 p-4 shadow-sm">
-        <div className="flex items-start gap-3">
-          <Skeleton className="size-11 rounded-2xl" />
-          <div className="flex min-w-0 flex-1 flex-col gap-2">
-            <Skeleton className="h-6 w-52 rounded-full" />
-            <Skeleton className="h-4 w-full max-w-xl rounded-full" />
-          </div>
-        </div>
-      </div>
-      <div className={mobile ? 'flex flex-col gap-4' : 'grid min-h-[calc(100vh-220px)] grid-cols-[340px_minmax(0,1fr)] gap-4'}>
-        <div className="rounded-2xl border border-border/70 bg-background/90 p-4 shadow-sm">
-          <div className="flex flex-col gap-3">
-            <Skeleton className="h-5 w-28 rounded-full" />
-            <Skeleton className="h-20 w-full rounded-2xl" />
-            <Skeleton className="h-20 w-full rounded-2xl" />
-            <Skeleton className="h-20 w-full rounded-2xl" />
-          </div>
-        </div>
-        <div className="rounded-2xl border border-border/70 bg-background/90 p-4 shadow-sm">
-          <div className="flex flex-col gap-4">
-            <Skeleton className="h-6 w-40 rounded-full" />
-            <Skeleton className="aspect-[4/3] w-full rounded-3xl" />
-            <div className="grid gap-4 xl:grid-cols-2">
-              <Skeleton className="h-44 w-full rounded-2xl" />
-              <Skeleton className="h-44 w-full rounded-2xl" />
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-function ImportCompressionOverlay({
-  open,
-  progress,
-}: {
-  open: boolean
-  progress: { percent: number; completed: number; total: number; fileName: string; stageLabel: string } | null
-}) {
-  if (!open || !progress) return null
-
-  return (
-    <div className="fixed inset-0 z-[80] flex items-center justify-center bg-background/58 px-4 backdrop-blur-md animate-in fade-in duration-300">
-      <Card className="w-full max-w-xl border-border/70 bg-background/94 shadow-2xl shadow-slate-900/10 animate-in zoom-in-95 duration-300">
-        <CardHeader className="gap-3">
-          <div className="flex items-center gap-3">
-            <div className="flex size-11 items-center justify-center rounded-2xl border border-border/70 bg-muted/30 text-foreground/85">
-              <ImageDownIcon className="size-5" />
-            </div>
-            <div className="min-w-0 space-y-1">
-              <CardTitle>正在预处理导入图片</CardTitle>
-              <CardDescription>已开启导入压缩，当前会先统一缩图和压缩，再加入项目。</CardDescription>
-            </div>
-          </div>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-4">
-          <div className="rounded-2xl border border-border/60 bg-muted/15 p-4">
-            <div className="flex items-center justify-between gap-3 text-sm">
-              <div className="truncate font-medium text-foreground/88">{progress.stageLabel}</div>
-              <div className="shrink-0 text-xs tabular-nums text-muted-foreground">{progress.percent}%</div>
-            </div>
-            <div className="mt-3">
-              <Progress value={progress.percent} className="h-2" />
-            </div>
-            <div className="mt-3 flex items-center justify-between gap-3 text-xs text-muted-foreground">
-              <span className="truncate">{progress.fileName}</span>
-              <span className="shrink-0">{Math.min(progress.completed + 1, progress.total)}/{progress.total}</span>
-            </div>
-          </div>
-          <div className="text-xs leading-5 text-muted-foreground">
-            大图压缩时会比普通导入更久一些；处理完成后会自动回到工作台。
-          </div>
-        </CardContent>
-      </Card>
-    </div>
-  )
-}
-
-function ProjectOptimizationOverlay({
-  open,
-  progress,
-}: {
-  open: boolean
-  progress: ProcessingProgress | null
-}) {
-  if (!open || !progress) return null
-
-  return (
-    <div className="fixed inset-0 z-[80] flex items-center justify-center bg-background/58 px-4 backdrop-blur-md animate-in fade-in duration-300">
-      <Card className="w-full max-w-xl border-border/70 bg-background/94 shadow-2xl shadow-slate-900/10 animate-in zoom-in-95 duration-300">
-        <CardHeader className="gap-3">
-          <div className="flex items-center gap-3">
-            <div className="flex size-11 items-center justify-center rounded-2xl border border-border/70 bg-muted/30 text-foreground/85">
-              <ImageDownIcon className="size-5" />
-            </div>
-            <div className="min-w-0 space-y-1">
-              <CardTitle>正在压缩当前项目</CardTitle>
-              <CardDescription>会按默认档位压缩图片，并同步保留裁切与遮罩位置。</CardDescription>
-            </div>
-          </div>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-4">
-          <div className="rounded-2xl border border-border/60 bg-muted/15 p-4">
-            <div className="flex items-center justify-between gap-3 text-sm">
-              <div className="truncate font-medium text-foreground/88">{progress.stageLabel}</div>
-              <div className="shrink-0 text-xs tabular-nums text-muted-foreground">{progress.percent}%</div>
-            </div>
-            <div className="mt-3">
-              <Progress value={progress.percent} className="h-2" />
-            </div>
-            <div className="mt-3 flex items-center justify-between gap-3 text-xs text-muted-foreground">
-              <span className="truncate">{progress.fileName || '正在整理项目'}</span>
-              <span className="shrink-0">{Math.min(progress.completed + 1, progress.total)}/{progress.total}</span>
-            </div>
-          </div>
-          <div className="text-xs leading-5 text-muted-foreground">
-            压缩完成后，当前项目会自动换成更轻的本地图片版本。
-          </div>
-        </CardContent>
-      </Card>
-    </div>
-  )
-}
-
-function DeferredDialogFallback({
-  title,
-  description,
-}: {
-  title: string
-  description: string
-}) {
-  return (
-    <div className="fixed inset-0 z-[90] flex items-center justify-center bg-background/58 px-4 backdrop-blur-md animate-in fade-in duration-300">
-      <Card className="w-full max-w-lg border-border/70 bg-background/94 shadow-2xl shadow-slate-900/10 animate-in zoom-in-95 duration-300">
-        <CardHeader className="gap-3">
-          <div className="flex items-center gap-3">
-            <div className="flex size-11 items-center justify-center rounded-2xl border border-border/70 bg-muted/30 text-foreground/85">
-              <Settings2Icon className="size-5 text-muted-foreground" />
-            </div>
-            <div className="min-w-0 space-y-1">
-              <CardTitle>{title}</CardTitle>
-              <CardDescription>{description}</CardDescription>
-            </div>
-          </div>
-        </CardHeader>
-        <CardContent className="flex items-center gap-4">
-          <Loader2Icon className="size-5 animate-spin text-muted-foreground shrink-0" />
-          <Progress value={65} className="h-2 w-full" />
-        </CardContent>
-      </Card>
-    </div>
-  )
-}
-
-function scaleBox(box: BBox, scaleX: number, scaleY: number, maxWidth: number, maxHeight: number): BBox {
-  const next: BBox = [
-    Math.round(box[0] * scaleX),
-    Math.round(box[1] * scaleY),
-    Math.round(box[2] * scaleX),
-    Math.round(box[3] * scaleY),
-  ]
-  next[0] = Math.max(0, Math.min(next[0], Math.max(0, maxWidth - 1)))
-  next[1] = Math.max(0, Math.min(next[1], Math.max(0, maxHeight - 1)))
-  next[2] = Math.max(next[0] + 1, Math.min(next[2], maxWidth))
-  next[3] = Math.max(next[1] + 1, Math.min(next[3], maxHeight))
-  return next
 }
 
 export default function App() {
@@ -284,9 +113,6 @@ export default function App() {
   const [deckPool, setDeckPool] = useState<string[]>(() => loadDeckPool())
   const [deckQuickPicks, setDeckQuickPicks] = useState<string[]>(() => loadDeckQuickPicks())
   const [storageReady, setStorageReady] = useState(false)
-  const [isImportingFiles, setIsImportingFiles] = useState(false)
-  const [importingLabel, setImportingLabel] = useState('正在准备项目')
-  const [importProgress, setImportProgress] = useState<ProcessingProgress | null>(null)
   const [optimizeProgress, setOptimizeProgress] = useState<ProcessingProgress | null>(null)
   const [recoverableProjectSummary, setRecoverableProjectSummary] = useState<RecoverableProjectSummary | null>(null)
   const [statusTasks, setStatusTasks] = useState<Record<StatusTaskId, StatusTaskState>>(() => createInitialStatusTasks())
@@ -294,10 +120,8 @@ export default function App() {
   const [ankiHelpOpen, setAnkiHelpOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [workbenchSettings, setWorkbenchSettings] = useState<WorkbenchSettings>(() => loadWorkbenchSettings())
-  const fileInputRef = useRef<HTMLInputElement | null>(null)
-  const fileManagerInputRef = useRef<HTMLInputElement | null>(null)
-  const folderInputRef = useRef<HTMLInputElement | null>(null)
   const deckPoolInputRef = useRef<HTMLInputElement | null>(null)
+  const cameraInputRef = useRef<HTMLInputElement | null>(null)
   const manualLayoutRef = useRef<HTMLDivElement | null>(null)
   const draftItemsRef = useRef<DraftListItem[]>([])
   const saveSequenceRef = useRef(0)
@@ -306,7 +130,7 @@ export default function App() {
   const restorePromptToastIdRef = useRef<string | number | null>(null)
   const pendingImageEditSaveMetricRef = useRef<PendingImageEditSaveMetric | null>(null)
   const exportModulesPrefetchedRef = useRef(false)
-  const [manualPanelLayout, setManualPanelLayout] = useState<[number, number]>(() => {
+  const [manualPanelLayout] = useState<[number, number]>(() => {
     if (typeof window === 'undefined') return [22, 78]
     const raw = window.localStorage.getItem(MANUAL_PANEL_LAYOUT_KEY)
     if (!raw) return [22, 78]
@@ -342,13 +166,6 @@ export default function App() {
   const [exportCleanupPrompt, setExportCleanupPrompt] = useState<{ open: boolean; draftIds: string[] }>({
     open: false,
     draftIds: [],
-  })
-  const [isDragActive, setIsDragActive] = useState(false)
-  const dragCounterRef = useRef(0)
-  const [hugeImportPrompt, setHugeImportPrompt] = useState<{ open: boolean; files: FileList | File[] | null; label: string }>({
-    open: false,
-    files: null,
-    label: '',
   })
 
   const selectedItem = useMemo(
@@ -425,23 +242,44 @@ export default function App() {
     const safeLeft = Math.min(60, left)
     return [safeLeft, Math.max(40, 100 - safeLeft)]
   }, [manualPanelLayout, manualProjectMinPercent])
-  const showWorkspaceLoadingShell = !storageReady
-  const showWorkspaceProcessingOverlay = isImportingFiles || loadingKey === 'restore-project'
-  const showImportCompressionOverlay = isImportingFiles && workbenchSettings.importCompressionEnabled
-  const workspaceProcessingText =
-    isImportingFiles
-      ? `${importingLabel}，正在处理图片和预览。`
-      : '正在恢复你上次保存在浏览器里的项目。'
-
-  const updateStatusTask = (taskId: StatusTaskId, patch: Partial<StatusTaskState>) => {
-    setStatusTasks((current) => ({
-      ...current,
-      [taskId]: {
-        ...current[taskId],
+  const updateStatusTask = useCallback((taskId: StatusTaskId, patch: Partial<StatusTaskState>) => {
+    setStatusTasks((current) => {
+      const currentTask = current[taskId]
+      const nextTask = {
+        ...currentTask,
         ...patch,
-      },
-    }))
-  }
+      }
+
+      if (
+        nextTask.state === currentTask.state &&
+        nextTask.progress === currentTask.progress &&
+        nextTask.detail === currentTask.detail &&
+        nextTask.label === currentTask.label
+      ) {
+        return current
+      }
+
+      return {
+        ...current,
+        [taskId]: nextTask,
+      }
+    })
+  }, [])
+
+  const { optimizeCurrentProjectForSpeed } = useProjectOptimization({
+    autoOptimizeMaxDimension: AUTO_OPTIMIZE_MAX_DIMENSION,
+    autoOptimizeQuality: AUTO_OPTIMIZE_QUALITY,
+    draftItemsRef,
+    selectedCompressionCount: projectCompressionCount,
+    setDraftItems,
+    setProjectCompressionCount,
+    setOptimizeProgress,
+    setSlowSavePrompt,
+    slowSavePromptShownRef,
+    slowSaveStrikeRef,
+    pendingImageEditSaveMetricRef,
+    updateStatusTask,
+  })
 
   const dismissAnkiHelpPrompt = useCallback(() => {
     setAnkiHelpPromptDismissed(true)
@@ -452,10 +290,54 @@ export default function App() {
 
   const dismissRestoreProjectPrompt = useCallback(() => {
     if (restorePromptToastIdRef.current !== null) {
-      toast.dismiss(restorePromptToastIdRef.current)
+      const toastId = restorePromptToastIdRef.current
       restorePromptToastIdRef.current = null
+      queueMicrotask(() => {
+        toast.dismiss(toastId)
+      })
     }
   }, [])
+
+  const {
+    fileInputRef,
+    fileManagerInputRef,
+    folderInputRef,
+    isImportingFiles,
+    importingLabel,
+    importProgress,
+    isDragActive,
+    hugeImportPrompt,
+    setHugeImportPrompt,
+    handleDragEnter,
+    handleDragLeave,
+    handleDragOver,
+    handleDrop,
+    onFileInputChange,
+    onFolderInputChange,
+    onFileManagerInputChange,
+    confirmHugeImport,
+  } = useImportWorkflow({
+    workbenchSettings,
+    setDraftItems,
+    setSelectedDraftId,
+    setWorkspaceMode,
+    setRecoverableProjectSummary,
+    setProjectCompressionCount,
+    setSlowSavePrompt,
+    dismissRestoreProjectPrompt,
+    updateStatusTask,
+    slowSavePromptShownRef,
+    slowSaveStrikeRef,
+    pendingImageEditSaveMetricRef,
+  })
+
+  const showWorkspaceLoadingShell = !storageReady
+  const showWorkspaceProcessingOverlay = isImportingFiles || loadingKey === 'restore-project'
+  const showImportCompressionOverlay = isImportingFiles && workbenchSettings.importCompressionEnabled
+  const workspaceProcessingText =
+    isImportingFiles
+      ? `${importingLabel}，正在处理图片和预览。`
+      : '正在恢复你上次保存在浏览器里的项目。'
 
   const promptAnkiHelpOnFirstFailure = useCallback((force = false) => {
     if (deviceProfile.isMobileDevice) return
@@ -476,6 +358,15 @@ export default function App() {
       },
     })
   }, [ankiHelpPromptDismissed, deviceProfile.isMobileDevice, dismissAnkiHelpPrompt])
+
+  const { refreshAnkiConnection, createCurrentDeckInAnki } = useAnkiActions({
+    canDirectAnki: deviceProfile.canDirectAnki,
+    setAnkiState,
+    setDeckPool,
+    setDeckQuickPicks,
+    updateStatusTask,
+    onNeedHelpPrompt: promptAnkiHelpOnFirstFailure,
+  })
 
   useEffect(() => {
     draftItemsRef.current = draftItems
@@ -542,156 +433,6 @@ export default function App() {
   }, [workbenchSettings])
 
   useEffect(() => {
-    let cancelled = false
-
-    const restore = async () => {
-      updateStatusTask('restore', { state: 'running', progress: 20, detail: '正在检查浏览器里是否有上次保存的项目。' })
-      try {
-        const saved = await api.projectStore.peekProjectSummary()
-        if (cancelled) return
-        if (!saved) {
-          updateStatusTask('restore', { state: 'idle', progress: 0, detail: '当前浏览器里还没有可恢复的项目。' })
-          return
-        }
-        setRecoverableProjectSummary(saved)
-        updateStatusTask('restore', {
-          state: 'idle',
-          progress: 0,
-          detail: `检测到 ${saved.itemCount} 张可恢复图片，等待你手动恢复。`,
-        })
-        const savedAtLabel = new Date(saved.savedAt).toLocaleString('zh-CN', { hour12: false })
-        restorePromptToastIdRef.current = toast('检测到上次本地项目', {
-          id: 'recoverable-project',
-          duration: Infinity,
-          description:
-            saved.itemCount > 0
-              ? `上次保存于 ${savedAtLabel}，共 ${saved.itemCount} 张图片。需要时可点“恢复项目”。`
-              : `上次保存于 ${savedAtLabel}。需要时可点“恢复项目”。`,
-          action: {
-            label: '恢复项目',
-            onClick: () => {
-              dismissRestoreProjectPrompt()
-              void run('restore-project', restoreSavedProject)
-            },
-          },
-          cancel: {
-            label: '稍后再说',
-            onClick: dismissRestoreProjectPrompt,
-          },
-        })
-      } catch (error) {
-        if (!cancelled) {
-          updateStatusTask('restore', { state: 'error', progress: 100, detail: error instanceof Error ? error.message : '浏览器本地数据读取失败。' })
-          toast.error('恢复本地项目失败', { description: error instanceof Error ? error.message : '浏览器本地数据读取失败。' })
-        }
-      } finally {
-        if (!cancelled) {
-          setStorageReady(true)
-        }
-      }
-    }
-
-    void restore()
-    return () => {
-      cancelled = true
-      dismissRestoreProjectPrompt()
-    }
-  }, [dismissRestoreProjectPrompt])
-
-  useEffect(() => {
-    if (!storageReady) return
-    if (recoverableProjectSummary && draftItems.length === 0) {
-      updateStatusTask('save', {
-        state: 'idle',
-        progress: 0,
-        detail: '当前保留了一个待恢复的本地项目，暂不自动用空白状态覆盖它。',
-      })
-      return
-    }
-    const sequence = ++saveSequenceRef.current
-    const handle = window.setTimeout(() => {
-      void (async () => {
-        updateStatusTask('save', {
-          state: 'running',
-          progress: 35,
-          detail: draftItems.length > 0 ? `正在保存 ${draftItems.length} 张图片的当前进度。` : '正在同步浏览器里的空项目状态。',
-        })
-
-        try {
-          const saveMetric = pendingImageEditSaveMetricRef.current
-          const startedAt = performance.now()
-          if (draftItems.length === 0) {
-            await api.projectStore.clearProject()
-          } else {
-            await api.projectStore.saveProject({ items: draftItems, selectedDraftId, workspaceMode, compressionCount: projectCompressionCount })
-          }
-          const elapsedMs = performance.now() - startedAt
-
-          if (saveSequenceRef.current !== sequence) return
-          updateStatusTask('save', {
-            state: 'success',
-            progress: 100,
-            detail:
-              saveMetric && draftItems.length > 0
-                ? `最近一次图片编辑保存已完成：${saveMetric.fileLabel}，约 ${Math.round(elapsedMs)}ms。`
-                : draftItems.length > 0
-                  ? `最近一次自动保存已完成，共 ${draftItems.length} 张图片。`
-                  : '当前浏览器里没有待保存的项目。',
-          })
-          if (saveMetric && draftItems.length > 0) {
-            console.info('[image-edit-save]', {
-              action: saveMetric.action,
-              draftId: saveMetric.draftId,
-              fileLabel: saveMetric.fileLabel,
-              elapsedMs: Math.round(elapsedMs),
-              changedImageCount: 1,
-              projectImageCount: draftItems.length,
-              savedAt: new Date().toISOString(),
-            })
-          }
-          if (saveMetric) {
-            const roundedElapsedMs = Math.round(elapsedMs)
-            const shouldAccumulateSlowSave =
-              projectCompressionCount > 0
-                ? roundedElapsedMs >= SLOW_SAVE_REPEAT_THRESHOLD_MS
-                : roundedElapsedMs >= SLOW_SAVE_THRESHOLD_MS
-
-            if (shouldAccumulateSlowSave) {
-              slowSaveStrikeRef.current += 1
-            } else {
-              slowSaveStrikeRef.current = 0
-            }
-
-            const shouldShowSlowSavePrompt =
-              !slowSavePromptShownRef.current &&
-              (
-                (projectCompressionCount === 0 && roundedElapsedMs >= SLOW_SAVE_THRESHOLD_MS) ||
-                (projectCompressionCount > 0 && slowSaveStrikeRef.current >= SLOW_SAVE_REPEAT_TRIGGER_COUNT)
-              )
-
-            if (shouldShowSlowSavePrompt) {
-              slowSavePromptShownRef.current = true
-              setSlowSavePrompt({
-                open: true,
-                elapsedMs: roundedElapsedMs,
-                itemCount: 1,
-                compressionCount: projectCompressionCount,
-              })
-            }
-          }
-          pendingImageEditSaveMetricRef.current = null
-        } catch (error) {
-          if (saveSequenceRef.current !== sequence) return
-          pendingImageEditSaveMetricRef.current = null
-          updateStatusTask('save', { state: 'error', progress: 100, detail: error instanceof Error ? error.message : '浏览器本地保存失败。' })
-          toast.error('浏览器本地保存失败', { description: error instanceof Error ? error.message : '请检查当前浏览器是否允许本地存储。' })
-        }
-      })()
-    }, 1600)
-    return () => window.clearTimeout(handle)
-  }, [draftItems, loadingKey, recoverableProjectSummary, selectedDraftId, storageReady, workspaceMode])
-
-  useEffect(() => {
     if (!hasPendingExitGuard || typeof window === 'undefined') return
 
     const onBeforeUnload = (event: BeforeUnloadEvent) => {
@@ -703,7 +444,7 @@ export default function App() {
     return () => window.removeEventListener('beforeunload', onBeforeUnload)
   }, [hasPendingExitGuard])
 
-  const run = async (key: string, action: () => Promise<void>) => {
+  const run = useCallback(async (key: string, action: () => Promise<void>) => {
     setLoadingKey(key)
     try {
       await action()
@@ -712,117 +453,9 @@ export default function App() {
     } finally {
       setLoadingKey(null)
     }
-  }
+  }, [])
 
-  const optimizeDraftItemForSpeed = async (item: DraftListItem): Promise<DraftListItem> => {
-    const sourceBlob = item.image_blob as Blob
-    const transformed = await transformImageBlob(sourceBlob, {
-      maxDimension: AUTO_OPTIMIZE_MAX_DIMENSION,
-      outputType: 'image/webp',
-      outputQuality: AUTO_OPTIMIZE_QUALITY,
-    })
-
-    const sourceWidth = Math.max(1, item.image.width)
-    const sourceHeight = Math.max(1, item.image.height)
-    const scaleX = transformed.width / sourceWidth
-    const scaleY = transformed.height / sourceHeight
-    const nextUrl = URL.createObjectURL(transformed.blob)
-
-    return {
-      ...item,
-      image: {
-        ...item.image,
-        width: transformed.width,
-        height: transformed.height,
-        source_url: nextUrl,
-        media_type: transformed.mediaType,
-        source_quality: 'project-optimized',
-      },
-      draft: {
-        ...item.draft,
-        crop: item.draft.crop
-          ? {
-              ...item.draft.crop,
-              bbox: scaleBox(item.draft.crop.bbox, scaleX, scaleY, transformed.width, transformed.height),
-              padding: Math.max(0, Math.round(item.draft.crop.padding * Math.max(scaleX, scaleY))),
-            }
-          : item.draft.crop,
-        masks: item.draft.masks.map((mask) => ({
-          ...mask,
-          bbox: scaleBox(mask.bbox, scaleX, scaleY, transformed.width, transformed.height),
-        })),
-        ocr_regions: item.draft.ocr_regions.map((region) => ({
-          ...region,
-          bbox: scaleBox(region.bbox, scaleX, scaleY, transformed.width, transformed.height),
-        })),
-        source_image_url: nextUrl,
-        updated_at: nowIso(),
-      },
-      image_blob: transformed.blob,
-    }
-  }
-
-  const optimizeCurrentProjectForSpeed = async () => {
-    const currentItems = draftItemsRef.current.filter((item) => item.image_blob instanceof Blob)
-    if (currentItems.length === 0) {
-      toast.error('当前没有可压缩的图片', { description: '先导入图片后再试。' })
-      return
-    }
-
-    setSlowSavePrompt({ open: false, elapsedMs: 0, itemCount: 0, compressionCount: projectCompressionCount })
-    setOptimizeProgress({
-      percent: 0,
-      completed: 0,
-      total: currentItems.length,
-      fileName: '',
-      stageLabel: '正在准备压缩当前项目',
-    })
-    updateStatusTask('save', { state: 'running', progress: 5, detail: `正在压缩 ${currentItems.length} 张图片，减少后续保存等待。` })
-
-    const loadingToastId = toast.loading('正在压缩当前项目', {
-      description: '会按默认档位压缩图片，并同步调整现有遮罩与裁切。',
-    })
-
-    try {
-      const optimizedItems: DraftListItem[] = []
-      for (const [index, item] of currentItems.entries()) {
-        setOptimizeProgress({
-          percent: Math.max(1, Math.round((index / Math.max(currentItems.length, 1)) * 100)),
-          completed: index,
-          total: currentItems.length,
-          fileName: item.image.source_path,
-          stageLabel: '正在读取并压缩图片',
-        })
-        optimizedItems.push(await optimizeDraftItemForSpeed(item))
-      }
-
-      const optimizedMap = new Map(optimizedItems.map((item) => [item.draft.id, item]))
-      const nextItems = draftItemsRef.current.map((item) => optimizedMap.get(item.draft.id) ?? item)
-      releaseDraftItems(draftItemsRef.current)
-      slowSavePromptShownRef.current = false
-      slowSaveStrikeRef.current = 0
-      setProjectCompressionCount((current) => current + 1)
-      setDraftItems(nextItems)
-      setOptimizeProgress({
-        percent: 100,
-        completed: currentItems.length,
-        total: currentItems.length,
-        fileName: currentItems.at(-1)?.image.source_path ?? '',
-        stageLabel: '压缩完成，正在回写项目',
-      })
-      updateStatusTask('save', { state: 'success', progress: 100, detail: `已按默认档位压缩 ${currentItems.length} 张图片，后续保存会更轻。` })
-      toast.dismiss(loadingToastId)
-      toast.success('当前项目已压缩', { description: '图片已换成更轻的版本，遮罩和裁切也一起保留好了。' })
-    } catch (error) {
-      updateStatusTask('save', { state: 'error', progress: 100, detail: error instanceof Error ? error.message : '当前项目压缩失败。' })
-      toast.dismiss(loadingToastId)
-      throw error
-    } finally {
-      setOptimizeProgress(null)
-    }
-  }
-
-  const replaceAllItems = (items: DraftListItem[], nextSelectedDraftId?: string | null) => {
+  const replaceAllItems = useCallback((items: DraftListItem[], nextSelectedDraftId?: string | null) => {
     releaseDraftItems(draftItemsRef.current)
     slowSavePromptShownRef.current = false
     slowSaveStrikeRef.current = 0
@@ -832,7 +465,62 @@ export default function App() {
     setSlowSavePrompt({ open: false, elapsedMs: 0, itemCount: 0, compressionCount: 0 })
     setDraftItems(items)
     setSelectedDraftId(nextSelectedDraftId ?? items[0]?.draft.id ?? null)
-  }
+  }, [dismissRestoreProjectPrompt])
+
+  const handleRestorePromptReady = useCallback((saved: RecoverableProjectSummary, restoreAction: () => Promise<void>) => {
+    const savedAtLabel = new Date(saved.savedAt).toLocaleString('zh-CN', { hour12: false })
+    queueMicrotask(() => {
+      restorePromptToastIdRef.current = toast('检测到上次本地项目', {
+        id: 'recoverable-project',
+        duration: Infinity,
+        description:
+          saved.itemCount > 0
+            ? `上次保存于 ${savedAtLabel}，共 ${saved.itemCount} 张图片。需要时可点“恢复项目”。`
+            : `上次保存于 ${savedAtLabel}。需要时可点“恢复项目”。`,
+        action: {
+          label: '恢复项目',
+          onClick: () => {
+            dismissRestoreProjectPrompt()
+            void run('restore-project', restoreAction)
+          },
+        },
+        cancel: {
+          label: '稍后再说',
+          onClick: dismissRestoreProjectPrompt,
+        },
+      })
+    })
+  }, [dismissRestoreProjectPrompt, run])
+
+  const { restoreSavedProject, clearLocalProject } = useProjectPersistence({
+    draftItems,
+    selectedDraftId,
+    workspaceMode,
+    loadingKey,
+    projectCompressionCount,
+    storageReady,
+    recoverableProjectSummary,
+    setStorageReady,
+    setRecoverableProjectSummary,
+    setProjectCompressionCount,
+    setDraftItems,
+    setSelectedDraftId,
+    setWorkspaceMode,
+    setSlowSavePrompt,
+    dismissRestoreProjectPrompt,
+    restorePromptToastIdRef,
+    saveSequenceRef,
+    slowSavePromptShownRef,
+    slowSaveStrikeRef,
+    pendingImageEditSaveMetricRef,
+    draftItemsRef,
+    slowSaveThresholdMs: SLOW_SAVE_THRESHOLD_MS,
+    slowSaveRepeatThresholdMs: SLOW_SAVE_REPEAT_THRESHOLD_MS,
+    slowSaveRepeatTriggerCount: SLOW_SAVE_REPEAT_TRIGGER_COUNT,
+    updateStatusTask,
+    replaceAllItems,
+    onRestorePromptReady: handleRestorePromptReady,
+  })
 
   const removeDraftItem = (draftId: string) => {
     const currentItems = draftItemsRef.current
@@ -886,265 +574,13 @@ export default function App() {
     setExportCleanupPrompt({ open: true, draftIds })
   }
 
-  const refreshAnkiConnection = async (options?: { source?: 'startup' | 'manual' | 'create-deck' }) => {
-    if (!deviceProfile.canDirectAnki) {
-      setAnkiState(EMPTY_ANKI_STATE)
-      updateStatusTask('anki', { state: 'idle', progress: 0, detail: '移动端已跳过本机 Anki 检测。' })
-      return
-    }
-
-    setAnkiState((current) => ({ ...current, ...ankiLoadingState() }))
-    updateStatusTask('anki', { state: 'running', progress: 15, detail: '正在连接本机 AnkiConnect，并检查模板状态。' })
-
-    try {
-      const check = await api.anki.checkAnkiConnection()
-      if (!check.ok) {
-        const failure = classifyAnkiFailure(check.message)
-        setAnkiState({
-          checked: true,
-          ok: false,
-          title: failure.title,
-          message: `${failure.detail} ${check.message}`.trim(),
-          decks: [],
-          level: failure.level,
-          lastCheckedAt: nowIso(),
-          templateStatus: null,
-        })
-        updateStatusTask('anki', { state: 'error', progress: 100, detail: check.message })
-        if (options?.source === 'startup' || options?.source === 'manual') {
-          promptAnkiHelpOnFirstFailure(options?.source === 'manual')
-        }
-        return
-      }
-
-      const [decks, templateStatus] = await Promise.all([api.anki.listAnkiDecks(), api.anki.ensureManualTemplate()])
-      const checkedAt = nowIso()
-      setAnkiState({
-        checked: true,
-        ok: true,
-        title: decks.length > 0 ? '本机牌组已同步' : '已连接，但还没有读到牌组',
-        message:
-          decks.length > 0
-            ? '网页已经连到你本机的 Anki，并拿到了当前可用牌组。'
-            : '网页已经连到你本机的 Anki，但目前没有读到任何牌组。请确认本机牌组是否为空。',
-        decks,
-        level: decks.length > 0 ? 'success' : 'warning',
-        lastCheckedAt: checkedAt,
-        templateStatus,
-      })
-      updateStatusTask('anki', {
-        state: decks.length > 0 ? 'success' : 'error',
-        progress: 100,
-        detail: decks.length > 0 ? `已连接本机 Anki，当前可用 ${decks.length} 个牌组。` : '已经连上本机 Anki，但当前没有读到任何牌组。',
-      })
-    } catch (error) {
-      const rawMessage = error instanceof Error ? error.message : 'Anki 状态检查失败。'
-      const failure = classifyAnkiFailure(rawMessage)
-      setAnkiState({
-        checked: true,
-        ok: false,
-        title: failure.title,
-        message: `${failure.detail} ${rawMessage}`.trim(),
-        decks: [],
-        level: failure.level,
-        lastCheckedAt: nowIso(),
-        templateStatus: null,
-      })
-      updateStatusTask('anki', { state: 'error', progress: 100, detail: rawMessage })
-      if (options?.source === 'startup' || options?.source === 'manual') {
-        promptAnkiHelpOnFirstFailure(options?.source === 'manual')
-      }
-      if (options?.source === 'manual' || options?.source === 'create-deck') {
-        throw error
-      }
-    }
-  }
-
-  const restoreSavedProject = async () => {
-    dismissRestoreProjectPrompt()
-    updateStatusTask('restore', { state: 'running', progress: 25, detail: '正在读取你上次保存在浏览器里的项目。' })
-    try {
-      const saved = await api.projectStore.loadProject()
-      if (!saved) {
-        setRecoverableProjectSummary(null)
-        updateStatusTask('restore', { state: 'idle', progress: 0, detail: '当前浏览器里没有可恢复的项目。' })
-        toast.error('当前没有可恢复的本地项目', { description: '先导入图片并编辑一次，浏览器才会保存这份项目。' })
-        return
-      }
-      replaceAllItems(saved.items, saved.selectedDraftId)
-      setProjectCompressionCount(saved.compressionCount)
-      setWorkspaceMode(preferredWorkspaceMode(saved.workspaceMode))
-      updateStatusTask('restore', { state: 'success', progress: 100, detail: `已恢复 ${saved.items.length} 张图片的本地项目。` })
-      toast.success('已恢复上次的本地项目', { description: `共恢复 ${saved.items.length} 张图片。` })
-    } catch (error) {
-      updateStatusTask('restore', { state: 'error', progress: 100, detail: error instanceof Error ? error.message : '本地项目恢复失败。' })
-      throw error
-    }
-  }
-
-  const clearLocalProject = async () => {
-    dismissRestoreProjectPrompt()
-    releaseDraftItems(draftItemsRef.current)
-    draftItemsRef.current = []
-    slowSavePromptShownRef.current = false
-    slowSaveStrikeRef.current = 0
-    pendingImageEditSaveMetricRef.current = null
-    setRecoverableProjectSummary(null)
-    setSlowSavePrompt({ open: false, elapsedMs: 0, itemCount: 0, compressionCount: 0 })
-    setProjectCompressionCount(0)
-    setDraftItems([])
-    setSelectedDraftId(null)
-
-    try {
-      await api.projectStore.clearProject()
-      updateStatusTask('save', { state: 'success', progress: 100, detail: '浏览器本地项目已清空。' })
-      toast.success('本地项目已清空', { description: '浏览器里保存的图片、遮挡和牌组信息都已移除。' })
-    } catch (error) {
-      updateStatusTask('save', { state: 'error', progress: 100, detail: error instanceof Error ? error.message : '清空浏览器本地项目失败。' })
-      throw error
-    }
-  }
-
-  const ingestFiles = async (files: FileList | File[], sourceLabel: string) => {
-    setIsImportingFiles(true)
-    setImportingLabel(sourceLabel)
-    setImportProgress(null)
-    const loadingToastId = toast.loading(`${sourceLabel}处理中`, {
-      description: '正在整理图片并加入列表，请稍等一下。',
-    })
-    updateStatusTask('files', { state: 'running', progress: 5, detail: `正在整理 ${sourceLabel} 里的图片。` })
-
-    try {
-      const items = await buildDraftItemsFromFiles(files, {
-        settings: workbenchSettings,
-        onProgress: ({ completed, total, fileName, percent, stageLabel }) => {
-          setImportProgress({
-            percent,
-            completed,
-            total,
-            fileName,
-            stageLabel,
-          })
-          updateStatusTask('files', {
-            state: 'running',
-            progress: Math.max(5, percent),
-            detail: `${stageLabel}：${fileName}（${Math.min(completed + 1, total)}/${total}）。`,
-          })
-        },
-      })
-
-      if (items.length === 0) {
-        updateStatusTask('files', { state: 'error', progress: 100, detail: '没有找到可用的图片文件。' })
-        toast.dismiss(loadingToastId)
-        toast.error('没有找到可导入的图片', { description: '支持 png、jpg、jpeg、webp、bmp、gif。' })
-        return
-      }
-
-      let addedCount = 0
-      setDraftItems((current) => {
-        const merged = mergeImportedItems(current, items)
-        addedCount = merged.length - current.length
-        return merged
-      })
-        setSelectedDraftId((current) => current ?? items[0]?.draft.id ?? null)
-        setWorkspaceMode('manual')
-        dismissRestoreProjectPrompt()
-        setRecoverableProjectSummary(null)
-        slowSavePromptShownRef.current = false
-        slowSaveStrikeRef.current = 0
-        pendingImageEditSaveMetricRef.current = null
-        setSlowSavePrompt({ open: false, elapsedMs: 0, itemCount: 0, compressionCount: 0 })
-        setProjectCompressionCount(0)
-        updateStatusTask('files', {
-        state: 'success',
-        progress: 100,
-        detail:
-          addedCount === items.length
-            ? `${sourceLabel} 已完成，本次带入 ${items.length} 张图片。`
-            : `${sourceLabel} 已完成，新带入 ${addedCount} 张图片，跳过了 ${items.length - addedCount} 张重复图片。`,
-      })
-      toast.dismiss(loadingToastId)
-      toast.success(`${sourceLabel} 已完成`, {
-        description:
-          addedCount === items.length
-            ? `本次带入 ${items.length} 张图片。`
-            : `新带入 ${addedCount} 张图片，跳过了 ${items.length - addedCount} 张重复图片。`,
-      })
-    } catch (error) {
-      toast.dismiss(loadingToastId)
-      updateStatusTask('files', { state: 'error', progress: 100, detail: error instanceof Error ? error.message : '图片导入失败。' })
-      throw error
-    } finally {
-      setIsImportingFiles(false)
-      setImportProgress(null)
-    }
-  }
-
-  const safeIngestFiles = async (files: FileList | File[], label: string) => {
-    if (files.length > 20) {
-      setHugeImportPrompt({ open: true, files, label })
-    } else {
-      await ingestFiles(files, label)
-    }
-  }
-
-  const handleDragEnter = (e: React.DragEvent) => {
-    e.preventDefault()
-    e.stopPropagation()
-    dragCounterRef.current++
-    if (e.dataTransfer.items && e.dataTransfer.items.length > 0) {
-      if (Array.from(e.dataTransfer.items).some(item => item.kind === 'file')) {
-        setIsDragActive(true)
-      }
-    }
-  }
-
-  const handleDragLeave = (e: React.DragEvent) => {
-    e.preventDefault()
-    e.stopPropagation()
-    dragCounterRef.current--
-    if (dragCounterRef.current === 0) {
-      setIsDragActive(false)
-    }
-  }
-
-  const handleDragOver = (e: React.DragEvent) => {
-    e.preventDefault()
-    e.stopPropagation()
-  }
-
-  const handleDrop = (e: React.DragEvent) => {
-    e.preventDefault()
-    e.stopPropagation()
-    dragCounterRef.current = 0
-    setIsDragActive(false)
-    
-    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-      const files = Array.from(e.dataTransfer.files)
-      void safeIngestFiles(files, '拖入图片')
-    }
-  }
-
-  const onFileInputChange = async (event: ChangeEvent<HTMLInputElement>) => {
-    const files = event.target.files
-    if (!files || files.length === 0) return
-    await safeIngestFiles(files, '图片上传')
-    event.target.value = ''
-  }
-
-  const onFolderInputChange = async (event: ChangeEvent<HTMLInputElement>) => {
-    const files = event.target.files
-    if (!files || files.length === 0) return
-    await safeIngestFiles(files, '文件夹导入')
-    event.target.value = ''
-  }
-
-  const onFileManagerInputChange = async (event: ChangeEvent<HTMLInputElement>) => {
-    const files = event.target.files
-    if (!files || files.length === 0) return
-    await safeIngestFiles(files, '文件管理器导入')
-    event.target.value = ''
-  }
+  const { exportDrafts } = useExportActions({
+    setDraftItems,
+    workbenchSettings,
+    deviceProfile,
+    updateStatusTask,
+    promptExportCleanup,
+  })
 
   const onDeckPoolBackupInputChange = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]
@@ -1234,269 +670,6 @@ export default function App() {
     }
     setDraftItems((current) => replaceDraft(current, nextDraft))
   }, [selectedItem])
-
-  const createCurrentDeckInAnki = async () => {
-    const nextDeck = deckInput.trim()
-    if (!nextDeck) {
-      toast.error('请先填写牌组名称', { description: '先输入你想创建的牌组名称，再执行新建。' })
-      return
-    }
-
-    await api.anki.createAnkiDeck(nextDeck)
-    setDeckPool(rememberDeckName(nextDeck))
-    setAnkiState((current) => {
-      const decks = [...new Set([...current.decks, nextDeck])].sort((left, right) => left.localeCompare(right, 'zh-CN'))
-      return {
-        ...current,
-        checked: true,
-        ok: true,
-        title: '已在 Anki 中创建牌组',
-        message: `新牌组“${nextDeck}”已经在本机 Anki 中准备好了。`,
-        decks,
-        level: 'success',
-        lastCheckedAt: nowIso(),
-      }
-    })
-    updateStatusTask('anki', { state: 'success', progress: 100, detail: `已在本机 Anki 中创建牌组：${nextDeck}` })
-    toast.success('新牌组已创建', { description: `“${nextDeck}”已经出现在本机 Anki 里。` })
-    await refreshAnkiConnection({ source: 'create-deck' })
-  }
-
-  const importDraftsToAnki = async (targets: DraftListItem[]) => {
-    if (targets.length === 0) {
-      updateStatusTask('export', { state: 'error', progress: 100, detail: '当前没有可导出的卡片。' })
-      toast.error('当前没有可导出的卡片', { description: '先画出遮挡，再打开导出流程逐张确认牌组。' })
-      return { successCount: 0, failedCount: 0 }
-    }
-
-    const formatPolicy = resolveExportFormatPolicy(targets.map((item) => ({ image: item.image })))
-    const exportFormat = pickAvailableExportFormat(workbenchSettings.imageGroupExportFormat, formatPolicy.allowedFormats)
-
-    updateStatusTask('export', { state: 'running', progress: 5, detail: '正在检查模板并准备导出到 Anki。' })
-
-    let result: Awaited<ReturnType<typeof api.anki.importManualDrafts>>
-    try {
-      result = await api.anki.importManualDrafts({
-        items: targets,
-        imageFormat: exportFormat,
-        imageQuality: quality,
-        generationMode: workbenchSettings.cardGenerationMode,
-        onProgress: ({ completed, total, label }) => {
-          updateStatusTask('export', {
-            state: 'running',
-            progress: Math.max(10, Math.round((completed / total) * 100)),
-            detail: `已处理 ${completed}/${total} 项，最近一项：${label}`,
-          })
-        },
-      })
-    } catch (error) {
-      updateStatusTask('export', { state: 'error', progress: 100, detail: error instanceof Error ? error.message : '导出到 Anki 失败。' })
-      throw error
-    }
-
-    const now = nowIso()
-    const resultMap = new Map(result.results.map((entry) => [entry.draft_id, entry]))
-    setDraftItems((current) =>
-      current.map((item) => {
-        const matched = resultMap.get(item.draft.id)
-        if (!matched) return item
-        return {
-          ...item,
-          draft: {
-            ...item.draft,
-            review_status: matched.ok ? 'imported' : item.draft.review_status,
-            imported_note_id: matched.note_ids[0] ?? item.draft.imported_note_id,
-            last_imported_at: matched.ok ? now : item.draft.last_imported_at,
-            updated_at: now,
-          },
-        }
-      }),
-    )
-
-    const successCount = result.results.filter((entry) => entry.ok).length
-    const failedCount = result.results.length - successCount
-    updateStatusTask('export', {
-      state: failedCount > 0 ? 'error' : 'success',
-      progress: 100,
-      detail: failedCount > 0 ? `本次成功 ${successCount} 项，失败 ${failedCount} 项。` : `本次已成功导出 ${successCount} 项到 Anki。`,
-    })
-    if (successCount > 0) {
-      toast.success('当前项目导出已完成', {
-        description: failedCount > 0 ? `成功 ${successCount} 项，失败 ${failedCount} 项。` : `本次共成功写入 ${successCount} 项。`,
-      })
-      promptExportCleanup(result.results.filter((entry) => entry.ok).map((entry) => entry.draft_id))
-    }
-    if (failedCount > 0) {
-      const firstFailed = result.results.find((entry) => !entry.ok)
-      toast.error('部分图片导出失败', { description: firstFailed?.error || '请检查 AnkiConnect 设置后重试。' })
-    }
-    return { successCount, failedCount }
-  }
-
-  const exportDraftsToApkg = async (targets: DraftListItem[]) => {
-    if (targets.length === 0) {
-      updateStatusTask('export', { state: 'error', progress: 100, detail: '当前没有可导出的卡片。' })
-      toast.error('当前没有可导出的卡片', { description: '先画出遮挡，再打开导出流程逐张确认牌组。' })
-      return { successCount: 0, failedCount: 0 }
-    }
-
-    const formatPolicy = resolveExportFormatPolicy(targets.map((item) => ({ image: item.image })))
-    const exportFormat = pickAvailableExportFormat(workbenchSettings.imageGroupExportFormat, formatPolicy.allowedFormats)
-
-    updateStatusTask('export', { state: 'running', progress: 5, detail: '正在生成 APKG 卡包。' })
-
-    try {
-      const { exportDraftsAsApkg, shareOrDownloadApkg } = await import('@/lib/apkg-export')
-      const { blob, fileName } = await exportDraftsAsApkg({
-        items: targets,
-        packageName: `anki-image-cloze-${new Date().toISOString().slice(0, 10)}`,
-        imageFormat: exportFormat,
-        imageQuality: quality,
-        generationMode: workbenchSettings.cardGenerationMode,
-        onProgress: ({ completed, total, label }) => {
-          updateStatusTask('export', {
-            state: 'running',
-            progress: Math.max(10, Math.round((completed / total) * 100)),
-            detail: `已处理 ${completed}/${total} 项，最近一项：${label}`,
-          })
-        },
-      })
-
-      const delivery = await shareOrDownloadApkg({
-        blob,
-        fileName,
-        preferShare: deviceProfile.isMobileDevice,
-        tryOpenAfterDownload: deviceProfile.isMobileDevice,
-      })
-
-      const now = nowIso()
-      const exportedIds = new Set(targets.map((item) => item.draft.id))
-      setDraftItems((current) =>
-        current.map((item) =>
-          exportedIds.has(item.draft.id)
-            ? {
-                ...item,
-                draft: {
-                  ...item.draft,
-                  review_status: 'packaged',
-                  updated_at: now,
-                },
-              }
-            : item,
-        ),
-      )
-
-      updateStatusTask('export', {
-        state: 'success',
-        progress: 100,
-        detail:
-          delivery === 'shared'
-            ? `APKG 卡包已生成，并已打开分享面板。`
-            : delivery === 'downloaded-open-attempted'
-              ? `APKG 卡包已生成并开始下载，系统也已额外尝试打开它。`
-              : `APKG 卡包已生成并开始下载。`,
-      })
-      toast.success('APKG 卡包已生成', {
-        description:
-          delivery === 'shared'
-            ? '如果系统支持分享，你现在可以直接把卡包交给 Anki 应用。'
-            : delivery === 'downloaded-open-attempted'
-              ? '下载已经开始，网页也顺手试了一次唤起可接收这个卡包的应用。'
-              : '下载完成后，可以手动用 Anki 或 AnkiDroid 导入。',
-      })
-      promptExportCleanup(targets.map((item) => item.draft.id))
-      return { successCount: targets.length, failedCount: 0 }
-    } catch (error) {
-      updateStatusTask('export', { state: 'error', progress: 100, detail: error instanceof Error ? error.message : '生成 APKG 卡包失败。' })
-      throw error
-    }
-  }
-
-  const exportDraftsToImageGroup = async (targets: DraftListItem[]) => {
-    if (targets.length === 0) {
-      updateStatusTask('export', { state: 'error', progress: 100, detail: '当前没有可导出的卡片。' })
-      toast.error('当前没有可导出的卡片', { description: '先画出遮挡，再打开导出流程逐张确认牌组。' })
-      return { successCount: 0, failedCount: 0 }
-    }
-
-    const formatPolicy = resolveExportFormatPolicy(targets.map((item) => ({ image: item.image })))
-    const exportFormat = pickAvailableExportFormat(workbenchSettings.imageGroupExportFormat, formatPolicy.allowedFormats)
-
-    updateStatusTask('export', { state: 'running', progress: 5, detail: '正在整理纯图像组导出内容。' })
-
-    try {
-      const { exportDraftsAsImageGroup, shareOrDownloadFile } = await import('@/lib/image-group-export')
-      const imageGroupFormatLabel = exportFormat === 'jpeg' ? 'JPG' : exportFormat.toUpperCase()
-      const { blob, fileName } = await exportDraftsAsImageGroup({
-        items: targets,
-        imageFormat: exportFormat,
-        imageQuality: workbenchSettings.imageGroupExportQuality,
-        packageName: `anki-image-group-${new Date().toISOString().slice(0, 10)}`,
-        generationMode: workbenchSettings.cardGenerationMode,
-        onProgress: ({ completed, total, label }) => {
-          updateStatusTask('export', {
-            state: 'running',
-            progress: Math.max(10, Math.round((completed / total) * 100)),
-            detail: `已处理 ${completed}/${total} 项，最近一项：${label}`,
-          })
-        },
-      })
-
-      const delivery = await shareOrDownloadFile({
-        blob,
-        fileName,
-        mimeType: 'application/zip',
-        preferShare: deviceProfile.isMobileDevice,
-      })
-
-      const now = nowIso()
-      const exportedIds = new Set(targets.map((item) => item.draft.id))
-      setDraftItems((current) =>
-        current.map((item) =>
-          exportedIds.has(item.draft.id)
-            ? {
-                ...item,
-                draft: {
-                  ...item.draft,
-                  review_status: 'packaged',
-                  updated_at: now,
-                },
-              }
-            : item,
-        ),
-      )
-
-      updateStatusTask('export', {
-        state: 'success',
-        progress: 100,
-        detail:
-          delivery === 'shared'
-            ? `纯图像组已生成，并已打开系统分享。`
-            : `纯图像组压缩包已生成并开始下载。`,
-      })
-      toast.success('纯图像组已生成', {
-        description:
-          delivery === 'shared'
-            ? `已按 ${imageGroupFormatLabel} 图片组打开系统分享。`
-            : `已按 ${imageGroupFormatLabel} 图片组开始下载压缩包。`,
-      })
-      promptExportCleanup(targets.map((item) => item.draft.id))
-      return { successCount: targets.length, failedCount: 0 }
-    } catch (error) {
-      updateStatusTask('export', { state: 'error', progress: 100, detail: error instanceof Error ? error.message : '生成纯图像组失败。' })
-      throw error
-    }
-  }
-
-  const exportDrafts = async (targets: DraftListItem[], destination: 'anki' | 'apkg' | 'image-group') => {
-    if (destination === 'anki') {
-      return importDraftsToAnki(targets)
-    }
-    if (destination === 'image-group') {
-      return exportDraftsToImageGroup(targets)
-    }
-    return exportDraftsToApkg(targets)
-  }
 
   const {
     exportDialogOpen,
@@ -1711,6 +884,14 @@ export default function App() {
         onChange={(event) => void onFileManagerInputChange(event)}
       />
       <input
+        ref={cameraInputRef}
+        type="file"
+        accept={MOBILE_IMAGE_ACCEPT}
+        capture="environment"
+        className="hidden"
+        onChange={(event) => void onFileInputChange(event)}
+      />
+      <input
         ref={folderInputRef}
         type="file"
         accept={MOBILE_IMAGE_ACCEPT}
@@ -1727,7 +908,7 @@ export default function App() {
         onChange={(event) => void onDeckPoolBackupInputChange(event)}
       />
 
-      <div className="mx-auto flex min-h-screen max-w-[1600px] flex-col gap-4 px-4 py-4 md:px-6">
+      <div className={deviceProfile.isMobileLayout ? 'mx-auto flex min-h-screen max-w-[1600px] flex-col gap-4 px-4 py-4 pb-24 md:px-6' : 'mx-auto flex min-h-screen max-w-[1600px] flex-col gap-4 px-4 py-4 md:px-6'}>
         <div className={!deviceProfile.isMobileDevice && editorHoverActive ? 'transition-[opacity,filter] duration-200 opacity-55 saturate-75' : 'transition-[opacity,filter] duration-200'}>
           <WorkbenchHeader
             workspaceMode={workspaceMode}
@@ -1735,6 +916,7 @@ export default function App() {
             manualGuide={manualGuide}
             loadingKey={loadingKey}
             onUploadImages={() => fileInputRef.current?.click()}
+            onCapturePhoto={deviceProfile.canReliableCameraCapture ? () => cameraInputRef.current?.click() : undefined}
             onImportFiles={() => fileManagerInputRef.current?.click()}
             onImportFolder={() => folderInputRef.current?.click()}
             onRestoreProject={() => void run('restore-project', restoreSavedProject)}
@@ -1824,13 +1006,6 @@ export default function App() {
                 <ResizablePanelGroup
                   orientation="horizontal"
                   className="h-full min-h-[calc(100vh-220px)] rounded-2xl border border-border/70 bg-background/90 shadow-lg shadow-slate-900/5 backdrop-blur"
-                  onLayoutChanged={(sizes) => {
-                    if (Array.isArray(sizes) && sizes.length === 2) {
-                      setManualPanelLayout((current) =>
-                        current[0] === sizes[0] && current[1] === sizes[1] ? current : [sizes[0], sizes[1]],
-                      )
-                    }
-                  }}
                 >
                   <ResizablePanel defaultSize={resolvedManualPanelLayout[0]} minSize={manualProjectMinPercent} className="min-h-0">
                     <div
@@ -1893,9 +1068,22 @@ export default function App() {
           </div>
         )}
 
-        <div className="px-1 pb-1 text-[11px] leading-5 text-muted-foreground/70">
-          Web 本地处理。这是基于 React + Vite 的网页工具；图片只会进入当前浏览器内存，处理和导出都在你的设备上完成。支持安装到桌面或主屏。
-        </div>
+        {deviceProfile.isMobileLayout ? (
+          <div className="flex flex-col gap-1 px-1 pb-1 text-[11px] leading-5 text-muted-foreground/72">
+            <div className="flex items-start gap-1.5">
+              <BadgeCheckIcon className="mt-[1px] size-3.5 shrink-0 text-muted-foreground/65" />
+              <span>Web 加载处理库，图片只在当前设备本地处理。</span>
+            </div>
+            <div className="flex items-start gap-1.5">
+              <BadgeCheckIcon className="mt-[1px] size-3.5 shrink-0 text-muted-foreground/65" />
+              <span>支持 PWA，可安装到桌面或主屏。</span>
+            </div>
+          </div>
+        ) : (
+          <div className="px-1 pb-1 text-[11px] leading-5 text-muted-foreground/70">
+            Web 本地处理。这是基于 React + Vite 的网页工具；图片只会进入当前浏览器内存，处理和导出都在你的设备上完成。支持安装到桌面或主屏。
+          </div>
+        )}
       </div>
 
       <ImportCompressionOverlay open={showImportCompressionOverlay} progress={importProgress} />
@@ -1954,7 +1142,7 @@ export default function App() {
           deckQuickPicks={deckQuickPicks}
           ankiState={ankiState}
           onRefreshDecks={() => void run('refresh-anki', () => refreshAnkiConnection({ source: 'manual' }))}
-          onCreateDeck={() => void run('create-deck', createCurrentDeckInAnki)}
+          onCreateDeck={() => void run('create-deck', () => createCurrentDeckInAnki(deckInput))}
           onConfirmCurrent={() => void run('confirm-export-card', confirmCurrentExportCard)}
           onPickDeckInBrowser={(deck) => void run('save-export-card-deck', async () => {
             setDeckInput(deck)
@@ -2019,7 +1207,7 @@ export default function App() {
         </AlertDialogContent>
       </AlertDialog>
 
-      <AlertDialog open={hugeImportPrompt.open} onOpenChange={(open) => setHugeImportPrompt(prev => ({ ...prev, open }))}>
+      <AlertDialog open={hugeImportPrompt.open} onOpenChange={(open) => setHugeImportPrompt((prev) => ({ ...prev, open }))}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>确认批量导入文件？</AlertDialogTitle>
@@ -2029,11 +1217,7 @@ export default function App() {
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>暂不导入</AlertDialogCancel>
-            <AlertDialogAction onClick={() => {
-              if (hugeImportPrompt.files) {
-                void ingestFiles(hugeImportPrompt.files, hugeImportPrompt.label)
-              }
-            }}>
+            <AlertDialogAction onClick={() => void confirmHugeImport()}>
               继续导入
             </AlertDialogAction>
           </AlertDialogFooter>

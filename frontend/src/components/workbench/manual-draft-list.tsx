@@ -15,9 +15,18 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Skeleton } from '@/components/ui/skeleton'
-import { XIcon } from 'lucide-react'
+import { Loader2Icon, XIcon } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { DraftListItem } from '@/types'
+
+const EDGE_FADE_MASK_STYLE = {
+  WebkitMaskImage: 'linear-gradient(to bottom, transparent 0, black 14px, black calc(100% - 14px), transparent 100%)',
+  maskImage: 'linear-gradient(to bottom, transparent 0, black 14px, black calc(100% - 14px), transparent 100%)',
+  WebkitMaskRepeat: 'no-repeat',
+  maskRepeat: 'no-repeat',
+  WebkitMaskSize: '100% 100%',
+  maskSize: '100% 100%',
+} as const
 
 interface ManualDraftListProps {
   items: DraftListItem[]
@@ -97,7 +106,7 @@ export const ManualDraftList = memo(function ManualDraftList({ items, selectedDr
   if (mobileLayout) {
     return (
       <>
-      <Card className="flex min-h-0 max-h-[18.5rem] overflow-hidden flex-col border-border/70 bg-background/90 shadow-none">
+      <Card data-telemetry-section="image-list" className="flex min-h-0 max-h-[18.5rem] overflow-hidden flex-col border-border/70 bg-background/90 shadow-none">
         <CardHeader className="gap-2 border-b border-border/70 px-4 py-3">
           <CardTitle className="flex items-center justify-between text-base">
             <span>图片选择</span>
@@ -110,13 +119,17 @@ export const ManualDraftList = memo(function ManualDraftList({ items, selectedDr
           </CardDescription>
         </CardHeader>
 
-        <CardContent className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-2.5 py-2.5">
+        <CardContent
+          className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-2.5 py-2.5"
+          style={EDGE_FADE_MASK_STYLE}
+        >
           <div className="flex flex-col gap-2">
               <AnimatePresence initial={false} mode="popLayout">
                 {activeItems.map((item) => {
                   const isSelected = item.draft.id === selectedDraftId
                   const maskCount = item.draft.masks.length
                   const hasMasks = maskCount > 0
+                  const isPreparing = item.image.status === 'preparing'
 
                   return (
                     <motion.div
@@ -126,16 +139,24 @@ export const ManualDraftList = memo(function ManualDraftList({ items, selectedDr
                       exit={{ opacity: 0, scale: 0.95 }}
                       transition={{ duration: 0.2 }}
                       key={item.draft.id}
-                      role="button"
-                      tabIndex={0}
+                      data-draft-id={item.draft.id}
+                      data-telemetry-id="image-select-item"
+                      role={isPreparing ? undefined : 'button'}
+                      tabIndex={isPreparing ? -1 : 0}
                     className={cn(
                       'group relative flex h-auto w-full flex-row items-start justify-start rounded-xl border px-2.5 py-2.5 text-left trs-all-400',
                       isSelected
                         ? 'border-transparent'
-                        : 'border-border/60 bg-background/80 hover:border-border hover:bg-muted/30',
+                        : isPreparing
+                          ? 'border-dashed border-border/60 bg-muted/20'
+                          : 'border-border/60 bg-background/80 hover:border-border hover:bg-muted/30',
                     )}
-                    onClick={() => onSelect(item.draft.id)}
-                    onKeyDown={(event) => handleSelectKeyDown(event, () => onSelect(item.draft.id))}
+                    onClick={() => {
+                      if (!isPreparing) onSelect(item.draft.id)
+                    }}
+                    onKeyDown={(event) => {
+                      if (!isPreparing) handleSelectKeyDown(event, () => onSelect(item.draft.id))
+                    }}
                   >
                     {isSelected && (
                       <motion.div
@@ -157,9 +178,14 @@ export const ManualDraftList = memo(function ManualDraftList({ items, selectedDr
                           onError={() => setLoadedImageIds((current) => ({ ...current, [item.image.id]: true }))}
                         />
                       ) : (
-                        <div className="text-[10px] text-muted-foreground">无预览</div>
+                        <div className="text-[10px] text-muted-foreground">{isPreparing ? '待转换' : '无预览'}</div>
                       )}
-                      {hasMasks ? (
+                      {isPreparing ? (
+                        <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-1 bg-background/72 text-foreground/70 pointer-events-none">
+                          <Loader2Icon className="size-4 animate-spin" />
+                          <span className="text-[9px] font-medium leading-tight">转换中</span>
+                        </div>
+                      ) : hasMasks ? (
                         <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-black/40 text-white pointer-events-none">
                           <span className="text-lg font-bold leading-none drop-shadow-md">{maskCount}</span>
                           <span className="text-[9px] font-semibold leading-tight opacity-90 drop-shadow-md text-slate-100">MASK</span>
@@ -172,11 +198,16 @@ export const ManualDraftList = memo(function ManualDraftList({ items, selectedDr
                         {truncateFileName(item.image.source_path, 28)}
                       </div>
                       <div className="mt-0.5 max-w-full text-[11px] font-medium text-muted-foreground/80">
-                        <span className="inline-block w-full truncate">{item.draft.deck?.trim() || '未分牌组'}</span>
+                        <span className="inline-block w-full truncate">
+                          {isPreparing
+                            ? 'HEIF 正在转换，通常会更久一些'
+                            : item.draft.deck?.trim() || '未分牌组'}
+                        </span>
                       </div>
                     </div>
-                    {onRemoveItem && (
+                    {onRemoveItem && !isPreparing && (
                       <Button
+                        data-telemetry-id="image-remove"
                         variant="ghost"
                         size="icon"
                         className={cn(
@@ -220,7 +251,7 @@ export const ManualDraftList = memo(function ManualDraftList({ items, selectedDr
 
   return (
       <>
-      <Card className="flex h-full min-h-0 overflow-hidden flex-col border-0! ring-0 outline-0 border-none! bg-transparent shadow-none">
+      <Card data-telemetry-section="image-list" className="flex h-full min-h-0 overflow-hidden flex-col border-0! ring-0 outline-0 border-none! bg-transparent shadow-none">
       <CardHeader className="gap-2 border-b border-border/70 px-5 py-2">
         <CardTitle className="flex items-center justify-between text-base">
           <span>图片选择</span>
@@ -234,13 +265,14 @@ export const ManualDraftList = memo(function ManualDraftList({ items, selectedDr
       </CardHeader>
       
       <CardContent className="min-h-0 h-0 flex-1 overflow-hidden px-3 py-3">
-        <ScrollArea className="h-full pr-3"> {/* pr-3 给滚动条留出足够的呼吸空间 */}
+        <ScrollArea className="h-full pr-3" style={EDGE_FADE_MASK_STYLE}> {/* pr-3 给滚动条留出足够的呼吸空间 */}
           <div className="flex flex-col gap-2"> {/* gap-3 缩小为 gap-2 */}
             <AnimatePresence initial={false} mode="popLayout">
             {activeItems.map((item) => {
               const isSelected = item.draft.id === selectedDraftId
               const maskCount = item.draft.masks.length
               const hasMasks = maskCount > 0
+              const isPreparing = item.image.status === 'preparing'
 
               return (
                 <motion.div
@@ -250,16 +282,24 @@ export const ManualDraftList = memo(function ManualDraftList({ items, selectedDr
                   exit={{ opacity: 0, scale: 0.95 }}
                   transition={{ duration: 0.2 }}
                   key={item.draft.id}
-                  role="button"
-                  tabIndex={0}
+                  data-draft-id={item.draft.id}
+                  data-telemetry-id="image-select-item"
+                  role={isPreparing ? undefined : 'button'}
+                  tabIndex={isPreparing ? -1 : 0}
                   className={cn(
                     'group relative h-auto w-full justify-start rounded-xl border px-2.5 py-2.5 text-left trs-all-400',
                     isSelected 
                       ? 'border-transparent ring-0' 
-                      : 'border-transparent bg-background/50 hover:border-border/60 hover:bg-muted/40',
+                      : isPreparing
+                        ? 'border-dashed border-border/55 bg-muted/20'
+                        : 'border-transparent bg-background/50 hover:border-border/60 hover:bg-muted/40',
                   )}
-                  onClick={() => onSelect(item.draft.id)}
-                  onKeyDown={(event) => handleSelectKeyDown(event, () => onSelect(item.draft.id))}
+                  onClick={() => {
+                    if (!isPreparing) onSelect(item.draft.id)
+                  }}
+                  onKeyDown={(event) => {
+                    if (!isPreparing) handleSelectKeyDown(event, () => onSelect(item.draft.id))
+                  }}
                 >
                   {isSelected && (
                     <motion.div
@@ -282,9 +322,14 @@ export const ManualDraftList = memo(function ManualDraftList({ items, selectedDr
                           onError={() => setLoadedImageIds((current) => ({ ...current, [item.image.id]: true }))}
                         />
                       ) : (
-                        <div className="text-[10px] text-muted-foreground">无预览</div>
+                        <div className="text-[10px] text-muted-foreground">{isPreparing ? '待转换' : '无预览'}</div>
                       )}
-                      {hasMasks ? (
+                      {isPreparing ? (
+                        <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-1 bg-background/72 text-foreground/70 pointer-events-none">
+                          <Loader2Icon className="size-4 animate-spin" />
+                          <span className="text-[9px] font-medium leading-tight">转换中</span>
+                        </div>
+                      ) : hasMasks ? (
                         <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-black/40 text-white pointer-events-none">
                           <span className="text-lg font-bold leading-none drop-shadow-md">{maskCount}</span>
                           <span className="text-[9px] font-semibold leading-tight opacity-90 drop-shadow-md text-slate-100">MASK</span>
@@ -297,11 +342,14 @@ export const ManualDraftList = memo(function ManualDraftList({ items, selectedDr
                         {truncateFileName(item.image.source_path, 38)}
                       </div>
                       <div className="mt-1 text-[11px] leading-4 text-muted-foreground/80 line-clamp-2">
-                        {item.draft.deck?.trim() || '未分牌组'}
+                        {isPreparing
+                          ? 'HEIF 正在转换，通常会更久一些'
+                          : item.draft.deck?.trim() || '未分牌组'}
                       </div>
                     </div>
-                    {onRemoveItem && (
+                    {onRemoveItem && !isPreparing && (
                       <Button
+                        data-telemetry-id="image-remove"
                         variant="ghost"
                         size="icon"
                         className={cn(

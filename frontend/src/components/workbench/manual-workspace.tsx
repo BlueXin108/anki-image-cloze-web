@@ -1,6 +1,6 @@
-import { memo, startTransition, useDeferredValue, useEffect, useMemo, useState } from 'react'
+import { memo, startTransition, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { ImageIcon, ImageDownIcon, ZoomInIcon } from 'lucide-react'
+import { ImageIcon, ImageDownIcon, Loader2Icon, SquarePenIcon, ZoomInIcon } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 
 import { ImageEditor } from '@/components/editor/image-editor'
@@ -36,6 +36,7 @@ interface ManualWorkspaceProps {
   canGoNext?: boolean
   isGlobalDragActive?: boolean
   generationMode?: CardGenerationMode
+  onFocusModeChange?: (open: boolean) => void
 }
 
 // 提取你提供的完整快捷键清单
@@ -199,6 +200,7 @@ export const ManualWorkspace = memo(function ManualWorkspace({
   canGoNext = false,
   isGlobalDragActive = false,
   generationMode = 'hide-all-reveal-current',
+  onFocusModeChange,
 }: ManualWorkspaceProps) {
   const [previewOpen, setPreviewOpen] = useState(false)
   const [previewTitle, setPreviewTitle] = useState('')
@@ -212,6 +214,7 @@ export const ManualWorkspace = memo(function ManualWorkspace({
   // Hover 状态控制与 Portal 挂载状态
   const [isEditorHovered, setIsEditorHovered] = useState(false)
   const [mounted, setMounted] = useState(false)
+  const focusModeInitializedRef = useRef(false)
 
   // 确保 Portal 仅在客户端渲染挂载
   useEffect(() => {
@@ -221,6 +224,14 @@ export const ManualWorkspace = memo(function ManualWorkspace({
   useEffect(() => {
     onEditorHoverChange?.(!touchOptimized && isEditorHovered && !focusMode)
   }, [focusMode, isEditorHovered, onEditorHoverChange, touchOptimized])
+
+  useEffect(() => {
+    if (!focusModeInitializedRef.current) {
+      focusModeInitializedRef.current = true
+      return
+    }
+    onFocusModeChange?.(focusMode)
+  }, [focusMode, onFocusModeChange])
 
   const groupedCardMasks = useMemo(
     () => (selectedItem ? groupMasksByCard(selectedItem.draft.masks) : []),
@@ -338,6 +349,7 @@ export const ManualWorkspace = memo(function ManualWorkspace({
   }
 
   const expectedCardCount = countGeneratedCards(selectedItem.draft, generationMode)
+  const selectedItemPreparing = selectedItem.image.status === 'preparing'
 
   const openPreview = (title: string, description: string, imageUrl: string | null) => {
     if (!imageUrl) return
@@ -393,7 +405,7 @@ export const ManualWorkspace = memo(function ManualWorkspace({
   )
 
   return (
-    <div className={cn("flex h-full flex-col overflow-hidden", touchOptimized ? "p-2" : "p-4")}>
+    <div data-telemetry-section="workspace" className={cn("flex h-full flex-col overflow-hidden", touchOptimized ? "p-2" : "p-4")}>
       
      
      {/* 核心修复：利用 createPortal 将元素直接注入 document.body。
@@ -453,37 +465,59 @@ export const ManualWorkspace = memo(function ManualWorkspace({
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div className="space-y-1 flex-1 min-w-0">
                     <CardTitle className={cn(touchOptimized && "text-[15px]")}>手动图像编辑</CardTitle>
-                    {!touchOptimized && (
+                    {!touchOptimized && !selectedItemPreparing ? (
                       <CardDescription>
                         {readOnlyInWorkspace
                           ? '当前页先只做预览，进入聚焦编辑后再拖动遮罩，能更稳地避开移动端误触。'
                           : '你可以在这里直接完成裁剪、遮罩、分组和制卡预览，整个过程都在当前浏览器里完成。'}
                       </CardDescription>
-                    )}
+                    ) : null}
+                    {selectedItemPreparing ? (
+                      <CardDescription>
+                        这张图还在后台转换中。转换完成后会自动开放编辑，不用重新导入。
+                      </CardDescription>
+                    ) : null}
                   </div>
-                  <Button 
-                    variant={touchOptimized ? "default" : "outline"} 
-                    size={touchOptimized ? "default" : "sm"} 
-                    className={cn(touchOptimized && "w-full shadow-md")}
-                    onClick={() => setFocusMode(true)}
-                  >
-                    <ZoomInIcon data-icon="inline-start" />
-                    {readOnlyInWorkspace ? '进入聚焦编辑' : '聚焦编辑（Q）'}
-                  </Button>
+                  {!selectedItemPreparing ? (
+                    <Button 
+                      variant={touchOptimized ? "default" : "outline"} 
+                      size={touchOptimized ? "default" : "sm"} 
+                      className={cn(touchOptimized ? "h-11 w-full shadow-md" : undefined)}
+                      onClick={() => setFocusMode(true)}
+                    >
+                      {touchOptimized ? <SquarePenIcon data-icon="inline-start" /> : <ZoomInIcon data-icon="inline-start" />}
+                      {readOnlyInWorkspace ? '进入聚焦编辑' : '聚焦编辑（Q）'}
+                    </Button>
+                  ) : null}
                 </div>
               </CardHeader>
               <CardContent className={cn("flex flex-col pt-2", touchOptimized ? "gap-2" : "gap-3")}>
-                {readOnlyInWorkspace ? (
+                {readOnlyInWorkspace && !selectedItemPreparing ? (
                   <div className="flex items-center gap-1.5 text-xs text-muted-foreground pb-0.5">
                     常规页仅供预览全图，请进入上方聚焦编辑层操作。
                   </div>
                 ) : null}
-                {renderEditor('normal')}
+                {selectedItemPreparing ? (
+                  <div className="flex min-h-[320px] items-center justify-center rounded-2xl border border-dashed border-border/70 bg-muted/20 p-6 text-center">
+                    <div className="flex max-w-sm flex-col items-center gap-3 text-sm text-muted-foreground">
+                      <div className="flex size-12 items-center justify-center rounded-2xl border border-border/70 bg-background/90 text-foreground/70">
+                        <Loader2Icon className="size-5 animate-spin" />
+                      </div>
+                      <div className="space-y-1">
+                        <div className="font-medium text-foreground/85">正在转换 HEIF 图片</div>
+                        <div>会先按照当前设置转成可编辑图片，完成后再开放裁切、遮罩和聚焦编辑。</div>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  renderEditor('normal')
+                )}
               </CardContent>
             </Card>
 
             {/* 以下保持原有的预览布局 */}
-            <Card className={cn('border-border/70 bg-background/80 transition-[opacity,filter] duration-200', !touchOptimized && isEditorHovered && 'opacity-45 saturate-75')}>
+            {!selectedItemPreparing ? (
+              <Card className={cn('border-border/70 bg-background/80 transition-[opacity,filter] duration-200', !touchOptimized && isEditorHovered && 'opacity-45 saturate-75')}>
               <CardHeader>
                 <CardTitle className={cn(touchOptimized && "text-[14px]")}>预览当前卡片分组</CardTitle>
                 <CardDescription className={cn(touchOptimized && "text-[11px]")}>点下面的小色块，切换问题和答案的预览。</CardDescription>
@@ -547,47 +581,50 @@ export const ManualWorkspace = memo(function ManualWorkspace({
                   </Empty>
                 )}
               </CardContent>
-            </Card>
+              </Card>
+            ) : null}
 
-            <div className={cn('grid gap-4 xl:grid-cols-2 transition-[opacity,filter] duration-200', !touchOptimized && isEditorHovered && 'opacity-45 saturate-75')}>
-              <PreviewPanel
-                title="问题面预览"
-                description={
-                  generationMode === 'hide-current-only'
-                    ? '当前模式下，题面只会遮住你选中的这一组。'
-                    : generationMode === 'single-card-toggle'
-                      ? '当前模式会生成一张可点击的整图卡；这里先用静态图预览全部遮罩的位置。'
-                      : '会按照当前选中的卡片分组，把这组遮罩高亮出来。'
-                }
-                imageUrl={previewSet.frontUrl}
-                loading={previewLoading}
-                emptyTitle="还没有预览"
-                emptyDescription="画出遮罩后，这里会立刻显示当前卡片的问题面。"
-                onOpen={() => openPreview('问题面预览', '点击放大查看当前问题面。', previewSet.frontUrl)}
-                onImageLoadedChange={() => {}}
-                alt="Front preview"
-                touchOptimized={touchOptimized}
-              />
+            {!selectedItemPreparing ? (
+              <div className={cn('grid gap-4 xl:grid-cols-2 transition-[opacity,filter] duration-200', !touchOptimized && isEditorHovered && 'opacity-45 saturate-75')}>
+                <PreviewPanel
+                  title="问题面预览"
+                  description={
+                    generationMode === 'hide-current-only'
+                      ? '当前模式下，题面只会遮住你选中的这一组。'
+                      : generationMode === 'single-card-toggle'
+                        ? '当前模式会生成一张可点击的整图卡；这里先用静态图预览全部遮罩的位置。'
+                        : '会按照当前选中的卡片分组，把这组遮罩高亮出来。'
+                  }
+                  imageUrl={previewSet.frontUrl}
+                  loading={previewLoading}
+                  emptyTitle="还没有预览"
+                  emptyDescription="画出遮罩后，这里会立刻显示当前卡片的问题面。"
+                  onOpen={() => openPreview('问题面预览', '点击放大查看当前问题面。', previewSet.frontUrl)}
+                  onImageLoadedChange={() => {}}
+                  alt="Front preview"
+                  touchOptimized={touchOptimized}
+                />
 
-              <PreviewPanel
-                title="答案面预览"
-                description={
-                  generationMode === 'hide-current-only'
-                    ? '当前模式下，答案面会把全部内容都显示出来。'
-                    : generationMode === 'single-card-toggle'
-                      ? '真正复习时可以直接点遮罩查看或重新盖回去；这里展示的是静态落地效果。'
-                      : '答案面会保留当前卡片本身的答案区域，并继续隐藏其他组的遮罩。'
-                }
-                imageUrl={previewSet.backUrl}
-                loading={previewLoading}
-                emptyTitle="还没有预览"
-                emptyDescription="当前还没有可展示的答案面效果。"
-                onOpen={() => openPreview('答案面预览', '点击放大查看当前答案面。', previewSet.backUrl)}
-                onImageLoadedChange={() => {}}
-                alt="Back preview"
-                touchOptimized={touchOptimized}
-              />
-            </div>
+                <PreviewPanel
+                  title="答案面预览"
+                  description={
+                    generationMode === 'hide-current-only'
+                      ? '当前模式下，答案面会把全部内容都显示出来。'
+                      : generationMode === 'single-card-toggle'
+                        ? '真正复习时可以直接点遮罩查看或重新盖回去；这里展示的是静态落地效果。'
+                        : '答案面会保留当前卡片本身的答案区域，并继续隐藏其他组的遮罩。'
+                  }
+                  imageUrl={previewSet.backUrl}
+                  loading={previewLoading}
+                  emptyTitle="还没有预览"
+                  emptyDescription="当前还没有可展示的答案面效果。"
+                  onOpen={() => openPreview('答案面预览', '点击放大查看当前答案面。', previewSet.backUrl)}
+                  onImageLoadedChange={() => {}}
+                  alt="Back preview"
+                  touchOptimized={touchOptimized}
+                />
+              </div>
+            ) : null}
           </div>
         </ScrollArea>
       ) : null}

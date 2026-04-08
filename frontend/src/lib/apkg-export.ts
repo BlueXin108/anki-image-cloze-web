@@ -1,4 +1,4 @@
-import { Card, Deck, Field, Media, Model, Note, Package } from 'anki-apkg-generator'
+import { Card, Deck, Field, Media, Model, Note, Package } from '@/lib/anki-apkg-generator-local'
 
 import { buildGeneratedCardTargets, isInteractiveCardMode } from '@/lib/card-generation'
 import { groupMasksByCard, renderDraftPreviewAssets } from '@/lib/manual-preview'
@@ -216,7 +216,7 @@ function hashStringToPositiveInt(value: string): number {
   return Math.abs(hash) + 1000
 }
 
-function buildApkgModel(): Model {
+function buildApkgModel() {
   const card = new Card().setCss(APKG_CARD_CSS).setTemplates([
     {
       name: 'Card 1',
@@ -299,8 +299,8 @@ export async function exportDraftsAsApkg(options: ApkgExportOptions): Promise<{
   const mimeType = exportMimeType(options.imageFormat)
   const extension = exportFileExtension(options.imageFormat)
   const model = buildApkgModel()
-  const deckMap = new Map<string, Deck>()
-  const medias: Media[] = []
+  const deckMap = new Map<string, any>()
+  const medias: any[] = []
   const total = options.items.length
 
   const getDeck = (deckName: string) => {
@@ -407,7 +407,14 @@ export async function exportDraftsAsApkg(options: ApkgExportOptions): Promise<{
   }
 
   const packageInstance = new Package([...deckMap.values()], medias)
-  const file = await packageInstance.writeToFile({ type: 'blob' })
+  let file: Blob
+
+  try {
+    file = await packageInstance.writeToFile({ type: 'blob' })
+  } catch (error) {
+    throw new Error(`卡包写入阶段失败：${error instanceof Error ? error.message : '浏览器没有成功写出 APKG 文件。'}`)
+  }
+
   if (!(file instanceof Blob)) {
     throw new Error('浏览器没有成功生成 APKG 文件。')
   }
@@ -418,61 +425,5 @@ export async function exportDraftsAsApkg(options: ApkgExportOptions): Promise<{
   }
 }
 
-export async function shareOrDownloadApkg(options: {
-  blob: Blob
-  fileName: string
-  preferShare?: boolean
-  tryOpenAfterDownload?: boolean
-}): Promise<'shared' | 'downloaded' | 'downloaded-open-attempted'> {
-  const file = new File([options.blob], options.fileName, {
-    type: 'application/zip',
-  })
-
-  if (
-    options.preferShare &&
-    typeof navigator !== 'undefined' &&
-    typeof navigator.share === 'function' &&
-    typeof navigator.canShare === 'function' &&
-    navigator.canShare({ files: [file] })
-  ) {
-    try {
-      await navigator.share({
-        files: [file],
-        title: options.fileName,
-        text: '已生成 APKG 卡包，可以直接分享给支持导入的 Anki 应用。',
-      })
-      return 'shared'
-    } catch (error) {
-      if (!(error instanceof Error) || error.name !== 'AbortError') {
-        throw error
-      }
-    }
-  }
-
-  const url = URL.createObjectURL(options.blob)
-  const anchor = document.createElement('a')
-  anchor.href = url
-  anchor.download = options.fileName
-  document.body.append(anchor)
-  anchor.click()
-  anchor.remove()
-
-  if (options.tryOpenAfterDownload && typeof window !== 'undefined') {
-    window.setTimeout(() => {
-      try {
-        const openAnchor = document.createElement('a')
-        openAnchor.href = url
-        openAnchor.target = '_blank'
-        openAnchor.rel = 'noopener noreferrer'
-        document.body.append(openAnchor)
-        openAnchor.click()
-        openAnchor.remove()
-      } catch {
-        // 这里只做一次尽力尝试，失败时仍保留已下载文件。
-      }
-    }, 180)
-  }
-
-  window.setTimeout(() => URL.revokeObjectURL(url), 1000)
-  return options.tryOpenAfterDownload ? 'downloaded-open-attempted' : 'downloaded'
-}
+// shareOrDownloadApkg 已迁移到 @/lib/share-or-download
+export { shareOrDownloadApkg } from '@/lib/share-or-download'

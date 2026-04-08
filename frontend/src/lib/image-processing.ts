@@ -1,4 +1,4 @@
-import { importCompressionMimeType } from '@/lib/workbench-settings'
+import { DEFAULT_WORKBENCH_SETTINGS, importCompressionMimeType } from '@/lib/workbench-settings'
 import type { WorkbenchSettings } from '@/types'
 
 interface TransformImageOptions {
@@ -13,6 +13,67 @@ interface TransformedImageResult {
   mediaType: string
   width: number
   height: number
+}
+
+export interface PreparedImportImage {
+  blob: Blob
+  mediaType: string
+  convertedFromHeif: boolean
+}
+
+const HEIF_MIME_TYPES = new Set([
+  'image/heic',
+  'image/heic-sequence',
+  'image/heif',
+  'image/heif-sequence',
+])
+
+export function resolvedHeifImportMimeType(
+  settings: WorkbenchSettings = DEFAULT_WORKBENCH_SETTINGS,
+): 'image/webp' | 'image/jpeg' | 'image/png' {
+  if (settings.importCompressionEnabled) {
+    return importCompressionMimeType(settings.importCompressionFormat)
+  }
+  return 'image/png'
+}
+
+export function isHeifLikeFile(file: Blob, name?: string): boolean {
+  const normalizedType = (file.type || '').toLowerCase()
+  if (HEIF_MIME_TYPES.has(normalizedType)) return true
+  return Boolean(name && /\.(heic|heif)$/i.test(name))
+}
+
+export async function prepareImportedImage(
+  blob: Blob,
+  name?: string,
+  settings: WorkbenchSettings = DEFAULT_WORKBENCH_SETTINGS,
+): Promise<PreparedImportImage> {
+  if (!isHeifLikeFile(blob, name)) {
+    return {
+      blob,
+      mediaType: blob.type || 'image/png',
+      convertedFromHeif: false,
+    }
+  }
+
+  const { default: heic2any } = await import('heic2any')
+  const targetMimeType = resolvedHeifImportMimeType(settings)
+  const converted = await heic2any({
+    blob,
+    toType: targetMimeType === 'image/png' ? 'image/png' : 'image/jpeg',
+    quality: Math.max(0.1, Math.min(1, settings.importImageQuality / 100)),
+  })
+
+  const nextBlob = Array.isArray(converted) ? converted[0] : converted
+  if (!(nextBlob instanceof Blob)) {
+    throw new Error('HEIF 图片转换失败，请改用 JPG、PNG 或 WebP 后再试。')
+  }
+
+  return {
+    blob: nextBlob,
+    mediaType: nextBlob.type || (targetMimeType === 'image/png' ? 'image/png' : 'image/jpeg'),
+    convertedFromHeif: true,
+  }
 }
 
 export async function normalizeImportedImage(

@@ -69,43 +69,7 @@ export async function exportDraftsAsImageGroup(options: ExportDraftImagesOptions
   }
 }
 
-export async function shareOrDownloadFile(options: {
-  blob: Blob
-  fileName: string
-  mimeType: string
-  preferShare?: boolean
-}): Promise<'shared' | 'downloaded'> {
-  const file = new File([options.blob], options.fileName, {
-    type: options.mimeType,
-  })
 
-  if (
-    options.preferShare &&
-    typeof navigator !== 'undefined' &&
-    typeof navigator.share === 'function' &&
-    typeof navigator.canShare === 'function' &&
-    navigator.canShare({ files: [file] })
-  ) {
-    try {
-      await navigator.share({
-        files: [file],
-        title: options.fileName,
-      })
-      return 'shared'
-    } catch (error) {
-      if (!(error instanceof Error) || error.name !== 'AbortError') {
-        throw error
-      }
-    }
-  }
+// shareOrDownloadFile 已迁移到 @/lib/share-or-download
+export { shareOrDownloadFile } from '@/lib/share-or-download'
 
-  const url = URL.createObjectURL(options.blob)
-  const anchor = document.createElement('a')
-  anchor.href = url
-  anchor.download = options.fileName
-  document.body.append(anchor)
-  anchor.click()
-  anchor.remove()
-  window.setTimeout(() => URL.revokeObjectURL(url), 1000)
-  return 'downloaded'
-}

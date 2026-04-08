@@ -97,6 +97,15 @@ export function resolveExportFormatPolicy(items: Array<Pick<DraftListItem, 'imag
     }
   }
 
+  const hasHeifConverted = items.some((item) => item.image.source_quality === 'heif-converted')
+  if (hasHeifConverted) {
+    return {
+      allowedFormats: ['webp'],
+      lockedReason: '这批图片里包含从 HEIF / HEIC 转成可编辑格式的图片。为了避免把转换后的结果再包装成 PNG 或 JPG，当前只保留 WebP。',
+      summary: '这批图片里包含已从 HEIF / HEIC 转换过的图片，导出只保留 WebP。',
+    }
+  }
+
   const hasLegacyUnknown = items.some((item) => item.image.source_quality === 'legacy-unknown')
   if (hasLegacyUnknown) {
     return {

@@ -1,5 +1,5 @@
 import type { CropSuggestion, DraftListItem, ImageSourceQuality, WorkspaceMode, WorkbenchSettings } from '@/types'
-import { normalizeImportedImage } from '@/lib/image-processing'
+import { normalizeImportedImage, prepareImportedImage, resolvedHeifImportMimeType } from '@/lib/image-processing'
 
 const IMAGE_TYPES = new Set([
   'image/png',
@@ -7,6 +7,10 @@ const IMAGE_TYPES = new Set([
   'image/webp',
   'image/bmp',
   'image/gif',
+  'image/heic',
+  'image/heic-sequence',
+  'image/heif',
+  'image/heif-sequence',
 ])
 
 export interface BuildDraftProgress {
@@ -23,6 +27,33 @@ interface DraftBlobSource {
   relativePath?: string
   mediaType?: string
   sourceQuality?: ImageSourceQuality
+}
+
+interface DraftIdentityOptions {
+  imageId?: string
+  draftId?: string
+  status?: string
+}
+
+interface BuildDraftItemFromFileOptions extends DraftIdentityOptions {
+  settings?: WorkbenchSettings
+  onProgress?: (progress: { stage: 'decode' | 'draw' | 'encode'; progress: number; label: string }) => void
+}
+
+function mediaTypeToExtension(mediaType: string): string {
+  switch (mediaType) {
+    case 'image/webp':
+      return 'webp'
+    case 'image/png':
+      return 'png'
+    case 'image/jpeg':
+    default:
+      return 'jpg'
+  }
+}
+
+function replaceFileExtension(value: string, nextExtension: string): string {
+  return value.replace(/\.[^.]+$/u, `.${nextExtension}`)
 }
 
 function normalizeFolderPath(relativePath: string): { sourcePath: string; folderPath: string } {
@@ -73,14 +104,14 @@ export function defaultManualCrop(width: number, height: number): CropSuggestion
   }
 }
 
-async function buildDraftItemFromBlob(source: DraftBlobSource): Promise<DraftListItem> {
+async function buildDraftItemFromBlob(source: DraftBlobSource, options?: DraftIdentityOptions): Promise<DraftListItem> {
   const relativePath = source.relativePath?.trim() || source.name
   const { sourcePath, folderPath } = normalizeFolderPath(relativePath)
   const sourceUrl = URL.createObjectURL(source.blob)
   const { width, height } = await readImageSize(sourceUrl)
   const fileHash = await createFileFingerprint(source.blob)
-  const imageId = crypto.randomUUID()
-  const draftId = crypto.randomUUID()
+  const imageId = options?.imageId ?? crypto.randomUUID()
+  const draftId = options?.draftId ?? crypto.randomUUID()
   const now = new Date().toISOString()
   return {
     image: {
@@ -90,7 +121,7 @@ async function buildDraftItemFromBlob(source: DraftBlobSource): Promise<DraftLis
       file_hash: fileHash,
       width,
       height,
-      status: 'manual_ready',
+      status: options?.status ?? 'manual_ready',
       ignored: false,
       deck: null,
       tags: [],
@@ -124,14 +155,101 @@ async function buildDraftItemFromBlob(source: DraftBlobSource): Promise<DraftLis
 }
 
 export async function buildDraftItemFromFile(file: File): Promise<DraftListItem> {
+  const result = await buildDraftItemFromImportedFile(file)
+  return result.item
+}
+
+export function buildPendingDraftItemFromFile(file: File, settings?: WorkbenchSettings): DraftListItem {
+  const imageId = crypto.randomUUID()
+  const draftId = crypto.randomUUID()
+  const now = new Date().toISOString()
+  const relativePath = (file as File & { webkitRelativePath?: string }).webkitRelativePath?.trim() || file.name
+  const finalMediaType = resolvedHeifImportMimeType(settings)
+  const sourcePath = replaceFileExtension(relativePath, mediaTypeToExtension(finalMediaType))
+  const normalized = normalizeFolderPath(sourcePath)
+
+  return {
+    image: {
+      id: imageId,
+      source_path: normalized.sourcePath,
+      folder_path: normalized.folderPath,
+      file_hash: `${file.name}:${file.size}:pending`,
+      width: 0,
+      height: 0,
+      status: 'preparing',
+      ignored: false,
+      deck: null,
+      tags: [],
+      source_url: null,
+      media_type: finalMediaType,
+      source_quality: settings?.importCompressionEnabled ? 'import-compressed' : 'heif-converted',
+    },
+    draft: {
+      id: draftId,
+      image_id: imageId,
+      deck: null,
+      tags: [],
+      review_status: 'draft',
+      route_reason: null,
+      crop: null,
+      masks: [],
+      ocr_regions: [],
+      ocr_text: null,
+      llm_summary: null,
+      llm_observed_text: null,
+      llm_cloze_targets: [],
+      llm_warnings: [],
+      render_fingerprint: null,
+      source_image_url: null,
+      imported_note_id: null,
+      updated_at: now,
+      last_imported_at: null,
+    },
+  }
+}
+
+export async function buildDraftItemFromImportedFile(
+  file: File,
+  options?: BuildDraftItemFromFileOptions,
+): Promise<{ item: DraftListItem; convertedFromHeif: boolean }> {
+  const prepared = await prepareImportedImage(file, file.name, options?.settings)
   const extended = file as File & { webkitRelativePath?: string }
-  return buildDraftItemFromBlob({
-    blob: file,
-    name: file.name,
-    relativePath: extended.webkitRelativePath?.trim() || file.name,
-    mediaType: file.type || 'image/png',
-    sourceQuality: 'original',
-  })
+  const originalRelativePath = extended.webkitRelativePath?.trim() || file.name
+
+  const normalized = options?.settings
+    ? await normalizeImportedImage(prepared.blob, options.settings, options.onProgress)
+    : { blob: prepared.blob, mediaType: prepared.mediaType }
+  const finalExtension = mediaTypeToExtension(normalized.mediaType)
+  const shouldRewriteExtension =
+    prepared.convertedFromHeif ||
+    Boolean(options?.settings?.importCompressionEnabled && normalized.mediaType !== (file.type || prepared.mediaType || 'image/png'))
+  const normalizedRelativePath = shouldRewriteExtension
+    ? replaceFileExtension(originalRelativePath, finalExtension)
+    : originalRelativePath
+
+  const item = await buildDraftItemFromBlob(
+    {
+      blob: normalized.blob,
+      name: shouldRewriteExtension ? replaceFileExtension(file.name, finalExtension) : file.name,
+      relativePath: normalizedRelativePath,
+      mediaType: normalized.mediaType,
+      sourceQuality: options?.settings?.importCompressionEnabled
+        ? 'import-compressed'
+        : prepared.convertedFromHeif
+          ? 'heif-converted'
+          : 'original',
+    },
+    {
+      imageId: options?.imageId,
+      draftId: options?.draftId,
+      status: 'manual_ready',
+    },
+  )
+
+  return {
+    item,
+    convertedFromHeif: prepared.convertedFromHeif,
+  }
 }
 
 export async function buildDraftItemFromAsset(assetUrl: string, name: string, relativePath?: string): Promise<DraftListItem> {
@@ -154,32 +272,30 @@ export async function buildDraftItemsFromFiles(
   options?: {
     onProgress?: (progress: BuildDraftProgress) => void
     settings?: WorkbenchSettings
+    onHeifConverted?: (payload: { count: number; fileNames: string[] }) => void
   },
 ): Promise<DraftListItem[]> {
-  const list = [...files].filter((file) => IMAGE_TYPES.has(file.type) || /\.(png|jpe?g|webp|bmp|gif)$/i.test(file.name))
+  const list = [...files].filter((file) => IMAGE_TYPES.has(file.type) || /\.(png|jpe?g|webp|bmp|gif|heic|heif)$/i.test(file.name))
   const items: DraftListItem[] = []
+  const heifConvertedFiles: string[] = []
 
   for (const [index, file] of list.entries()) {
-    const normalized = options?.settings
-      ? await normalizeImportedImage(file, options.settings, (progress) => {
-          options?.onProgress?.({
-            completed: index,
-            total: list.length,
-            fileName: file.name,
-            percent: Math.max(1, Math.round(((index + progress.progress / 100) / Math.max(list.length, 1)) * 100)),
-            stageLabel: progress.label,
-          })
+    const result = await buildDraftItemFromImportedFile(file, {
+      settings: options?.settings,
+      onProgress: (progress) => {
+        options?.onProgress?.({
+          completed: index,
+          total: list.length,
+          fileName: file.name,
+          percent: Math.max(1, Math.round(((index + progress.progress / 100) / Math.max(list.length, 1)) * 100)),
+          stageLabel: progress.label,
         })
-      : { blob: file as Blob, mediaType: file.type || 'image/png' }
-
-    const extended = file as File & { webkitRelativePath?: string }
-    const item = await buildDraftItemFromBlob({
-      blob: normalized.blob,
-      name: file.name,
-      relativePath: extended.webkitRelativePath?.trim() || file.name,
-      mediaType: normalized.mediaType,
-      sourceQuality: options?.settings?.importCompressionEnabled ? 'import-compressed' : 'original',
+      },
     })
+    if (result.convertedFromHeif) {
+      heifConvertedFiles.push(file.name)
+    }
+    const item = result.item
     items.push(item)
     options?.onProgress?.({
       completed: index + 1,
@@ -187,6 +303,13 @@ export async function buildDraftItemsFromFiles(
       fileName: file.name,
       percent: Math.max(1, Math.round(((index + 1) / Math.max(list.length, 1)) * 100)),
       stageLabel: options?.settings?.importCompressionEnabled ? '当前图片处理完成' : '当前图片已加入项目',
+    })
+  }
+
+  if (heifConvertedFiles.length > 0) {
+    options?.onHeifConverted?.({
+      count: heifConvertedFiles.length,
+      fileNames: heifConvertedFiles,
     })
   }
 
