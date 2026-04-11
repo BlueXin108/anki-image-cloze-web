@@ -8,7 +8,7 @@ import { motion, AnimatePresence, MotionConfig } from 'framer-motion'
 import { toast } from 'sonner'
 
 import { LandingPage } from '@/components/landing/landing-page'
-import { PageTransition } from '@/components/app/page-transition'
+import { LandingBackground } from '@/components/landing/landing-background'
 import {
   DeferredDialogFallback,
   ImportCompressionOverlay,
@@ -111,7 +111,7 @@ const editorBarVariants = {
     y: 0, 
       opacity: 1,
       transition: {
-        delay: 0.6,
+        delay: 1.4,
         duration: 1,
         ease: WORKBENCH_EASE_OUT,
       }
@@ -124,7 +124,7 @@ const workbenchMainVariants = {
       opacity: 1,
       y: 0,
       transition: {
-        delay: 0.6,
+        delay: 0.8,
         duration: 1,
         ease: WORKBENCH_EASE_OUT,
       },
@@ -195,12 +195,9 @@ export default function App() {
     compressionCount: 0,
   })
   const [clearConfirmOpen, setClearConfirmOpen] = useState(false)
-  const [exportCleanupPrompt, setExportCleanupPrompt] = useState<{ open: boolean; draftIds: string[] }>({
-    open: false,
-    draftIds: [],
-  })
   const [workbenchIntroActive, setWorkbenchIntroActive] = useState(false)
   const [workbenchMainReady, setWorkbenchMainReady] = useState(true)
+  const [landingIntroReady, setLandingIntroReady] = useState(false)
   const previousShowLandingRef = useRef(true)
 
   const selectedItem = useMemo(
@@ -220,19 +217,6 @@ export default function App() {
   const showLanding = draftItems.length === 0 && storageReady
   const suppressOverlayUi = showLanding || workbenchIntroActive
   const shouldRenderWorkbenchMain = workbenchMainReady || !workbenchIntroActive
-  const workbenchHeaderMotion = workbenchIntroActive
-    ? {
-        initial: { opacity: 0 },
-        animate: {
-          opacity: 1,
-          transition: {
-            delay: 2,
-            duration: 1,
-            ease: WORKBENCH_EASE_INOUT,
-          },
-        },
-      }
-    : undefined
 
   useEffect(() => {
     if (typeof document === 'undefined') return
@@ -266,6 +250,27 @@ export default function App() {
     return () => {
       window.clearTimeout(mainTimer)
       window.clearTimeout(endTimer)
+    }
+  }, [showLanding])
+
+  useEffect(() => {
+    if (!showLanding) {
+      setLandingIntroReady(false)
+      return
+    }
+
+    let frameA = 0
+    let frameB = 0
+    setLandingIntroReady(false)
+    frameA = window.requestAnimationFrame(() => {
+      frameB = window.requestAnimationFrame(() => {
+        setLandingIntroReady(true)
+      })
+    })
+
+    return () => {
+      window.cancelAnimationFrame(frameA)
+      window.cancelAnimationFrame(frameB)
     }
   }, [showLanding])
 
@@ -663,17 +668,11 @@ export default function App() {
     releaseDraftItems(removedItems)
   }
 
-  const promptExportCleanup = (draftIds: string[]) => {
-    if (draftIds.length === 0) return
-    setExportCleanupPrompt({ open: true, draftIds })
-  }
-
   const { exportDrafts } = useExportActions({
     setDraftItems,
     workbenchSettings,
     deviceProfile,
     updateStatusTask,
-    promptExportCleanup,
   })
 
   const onDeckPoolBackupInputChange = async (event: ChangeEvent<HTMLInputElement>) => {
@@ -773,6 +772,8 @@ export default function App() {
     deckInput,
     tagsInput,
     quality,
+    exportCleanupDraftIds,
+    lastExportDestination,
     setDeckInput,
     setTagsInput,
     setQuality,
@@ -785,6 +786,8 @@ export default function App() {
     goToNextExportCard,
     selectExportCardWithAutoSave,
     exportAllFromFlow,
+    dismissExportSuccess,
+    clearExportedDraftsAndClose,
   } = useExportFlow({
     draftItems,
     exportQueue,
@@ -805,6 +808,11 @@ export default function App() {
     if (exportDialogOpen) {
       setExportDialogRequested(true)
     }
+  }, [exportDialogOpen])
+
+  useEffect(() => {
+    if (!exportDialogOpen) return
+    setSlowSavePrompt((current) => (current.open ? { ...current, open: false } : current))
   }, [exportDialogOpen])
 
   const summary = useMemo(() => {
@@ -961,29 +969,43 @@ export default function App() {
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
       >
+        {!workbenchSettings.disableAnimations ? (
+          <LandingBackground introReady={landingIntroReady} workbenchShifted={!showLanding} />
+        ) : null}
         <AnimatePresence mode="popLayout">
           {showLanding ? (
-            <PageTransition key="landing" className="w-full">
+            <motion.div 
+              key="landing" 
+              className="w-full"
+              exit={{ opacity: 0, transition: { duration: 0.3 } }}
+            >
               <LandingPage 
                 onIngest={safeIngestFiles}
                 onRestore={() => run('restore-project', restoreSavedProject)}
                 isImporting={isImportingFiles || loadingKey === 'restore-project'}
                 recoverableSummary={recoverableProjectSummary}
+                introReady={landingIntroReady}
                 mobileOptimized={deviceProfile.isMobileDevice}
                 onCapturePhoto={deviceProfile.canReliableCameraCapture ? () => cameraInputRef.current?.click() : undefined}
                 onImportFiles={() => fileManagerInputRef.current?.click()}
               />
-            </PageTransition>
+            </motion.div>
           ) : (
-            <div
+            <motion.div
               key="workbench"
-              className="w-full bg-[radial-gradient(circle_at_top_left,_rgba(148,163,184,0.16),_transparent_28%),radial-gradient(circle_at_top_right,_rgba(255,255,255,0.7),_transparent_18%),linear-gradient(180deg,#f8fafc_0%,#f1f5f9_100%)]"
+              exit={{ opacity: 0, transition: { duration: 0.3 } }}
+              className="w-full relative"
             >
-              <div className={deviceProfile.isMobileLayout ? 'mx-auto flex min-h-screen max-w-[1600px] flex-col gap-4 px-4 py-4 pb-24 md:px-6' : 'mx-auto flex min-h-screen max-w-[1600px] flex-col gap-4 px-4 py-4 md:px-6'}>
-                <motion.div
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 1.2, ease: WORKBENCH_EASE_INOUT }}
+                className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,_rgba(148,163,184,0.16),_transparent_28%),radial-gradient(circle_at_top_right,_rgba(255,255,255,0.7),_transparent_18%),linear-gradient(180deg,#f8fafc_0%,#f1f5f9_100%)] pointer-events-none"
+              />
+              <div className={deviceProfile.isMobileLayout ? 'relative z-10 mx-auto flex min-h-screen max-w-[1600px] flex-col gap-4 px-4 py-4 pb-24 md:px-6' : 'relative z-10 mx-auto flex min-h-screen max-w-[1600px] flex-col gap-4 px-4 py-4 md:px-6'}>
+                <div
                   className={!deviceProfile.isMobileDevice && editorHoverActive ? 'transition-[opacity,filter] duration-200 opacity-55 saturate-75' : 'transition-[opacity,filter] duration-200'}
-                  initial={workbenchHeaderMotion?.initial}
-                  animate={workbenchHeaderMotion?.animate}
                 >
                   <WorkbenchHeader
                     workspaceMode={workspaceMode}
@@ -1024,16 +1046,15 @@ export default function App() {
                     showModeTabs={ENABLE_WORKSPACE_MODE_SWITCH}
                     projectCompressionState={projectCompressionState}
                     projectCompressionCount={projectCompressionCount}
-                    introMode={workbenchIntroActive}
                   />
-                </motion.div>
+                </div>
 
                 {showWorkspaceLoadingShell ? (
                   <WorkspaceLoadingShell mobile={deviceProfile.isMobileLayout} />
                 ) : !shouldRenderWorkbenchMain ? null : (
                   <motion.div
                     variants={workbenchMainVariants}
-                    initial={workbenchIntroActive ? "hidden" : false}
+                    initial="hidden"
                     animate="visible"
                     className="relative"
                   >
@@ -1058,10 +1079,10 @@ export default function App() {
                     ) : deviceProfile.isMobileLayout ? (
                       <div className="flex min-h-[calc(100vh-220px)] flex-col gap-4">
                         <motion.div
-                          initial={workbenchIntroActive ? { opacity: 0, y: 26 } : false}
+                          initial={{ opacity: 0, y: 26 }}
                           animate={{ opacity: 1, y: 0 }}
-                          transition={{ delay: workbenchIntroActive ? 0.2 : 0, duration: 1, ease: WORKBENCH_EASE_OUT }}
-                          className="opacity-0 will-change-[opacity,transform]"
+                          transition={{ delay: 0.8, duration: 1, ease: WORKBENCH_EASE_OUT }}
+                          className="will-change-[opacity,transform]"
                         >
                           <ManualDraftList
                             items={draftItems}
@@ -1072,10 +1093,10 @@ export default function App() {
                           />
                         </motion.div>
                         <motion.div
-                          initial={workbenchIntroActive ? { opacity: 0, y: 26 } : false}
+                          initial={{ opacity: 0, y: 26 }}
                           animate={{ opacity: 1, y: 0 }}
-                          transition={{ delay: workbenchIntroActive ? 0.34 : 0, duration: 1, ease: WORKBENCH_EASE_OUT }}
-                          className="min-h-0 rounded-2xl border border-border/70 bg-background/90 shadow-lg shadow-slate-900/5 backdrop-blur opacity-0 will-change-[opacity,transform]"
+                          transition={{ delay: 1.05, duration: 1, ease: WORKBENCH_EASE_OUT }}
+                          className="min-h-0 rounded-2xl border border-border/70 bg-background/90 shadow-lg shadow-slate-900/5 backdrop-blur will-change-[opacity,transform]"
                         >
                           <ManualWorkspace
                             selectedItem={selectedItem}
@@ -1092,6 +1113,7 @@ export default function App() {
                             canGoNext={selectedDraftIndex >= 0 && selectedDraftIndex < activeDraftItems.length - 1}
                             isGlobalDragActive={isDragActive}
                             shortcutOverlayReady={!workbenchIntroActive}
+                            modernFloatingToolbar={workbenchSettings.modernFloatingToolbar}
                           />
                         </motion.div>
                       </div>
@@ -1123,6 +1145,7 @@ export default function App() {
                               canGoNext={selectedDraftIndex >= 0 && selectedDraftIndex < activeDraftItems.length - 1}
                               isGlobalDragActive={isDragActive}
                               shortcutOverlayReady={!workbenchIntroActive}
+                              modernFloatingToolbar={workbenchSettings.modernFloatingToolbar}
                             />
                           </ResizablePanel>
                         </ResizablePanelGroup>
@@ -1166,10 +1189,10 @@ export default function App() {
                 {deviceProfile.isMobileLayout ? (
                   shouldRenderWorkbenchMain ? (
                     <motion.div
-                      initial={workbenchIntroActive ? { opacity: 0, y: 14 } : false}
+                      initial={{ opacity: 0, y: 14 }}
                       animate={{ opacity: 1, y: 0 }}
-                      transition={{ delay: workbenchIntroActive ? 0.48 : 0, duration: 0.8, ease: WORKBENCH_EASE_OUT }}
-                      className="flex flex-col gap-1 px-1 pb-1 text-[11px] leading-5 text-muted-foreground/72 opacity-0 will-change-[opacity,transform]"
+                      transition={{ delay: 1.4, duration: 0.8, ease: WORKBENCH_EASE_OUT }}
+                      className="flex flex-col gap-1 px-1 pb-1 text-[11px] leading-5 text-muted-foreground/72 will-change-[opacity,transform]"
                     >
                       <div className="flex items-start gap-1.5">
                         <BadgeCheckIcon className="mt-[1px] size-3.5 shrink-0 text-muted-foreground/65" />
@@ -1182,9 +1205,14 @@ export default function App() {
                     </motion.div>
                   ) : null
                 ) : (
-                  <div className="px-1 pb-1 text-[11px] leading-5 text-muted-foreground/70">
+                  <motion.div 
+                    initial={{ opacity: 0, y: 14 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 1.4, duration: 0.8, ease: WORKBENCH_EASE_OUT }}
+                    className="px-1 pb-1 text-[11px] leading-5 text-muted-foreground/70 will-change-[opacity,transform]"
+                  >
                     Web 本地处理。这是基于 React + Vite 的网页工具；图片只会进入当前浏览器内存，处理和导出都在你的设备上完成。支持安装到桌面或主屏。
-                  </div>
+                  </motion.div>
                 )}
               </div>
 
@@ -1218,7 +1246,7 @@ export default function App() {
                   </motion.div>
                 ) : null
               ) : null}
-            </div>
+            </motion.div>
           )}
         </AnimatePresence>
 
@@ -1334,6 +1362,14 @@ export default function App() {
             touchOptimized={deviceProfile.isTouchLike}
             onOpenAnkiHelp={() => setAnkiHelpOpen(true)}
             generationMode={workbenchSettings.cardGenerationMode}
+            exportedDraftIds={exportCleanupDraftIds}
+            lastExportDestination={lastExportDestination}
+            onKeepExportedItems={dismissExportSuccess}
+            onClearExportedItems={() => {
+              const draftIds = clearExportedDraftsAndClose()
+              removeDraftItemsByIds(draftIds)
+              toast.success('已清掉刚刚导出的项目', { description: '当前浏览器里的项目列表已经同步收干净。' })
+            }}
           />
         ) : null}
 
@@ -1410,37 +1446,6 @@ export default function App() {
           </AlertDialogContent>
         </AlertDialog>
 
-        <AlertDialog
-          open={exportCleanupPrompt.open}
-          onOpenChange={(open) => {
-            setExportCleanupPrompt((current) => ({ ...current, open }))
-          }}
-        >
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle>导出已完成，要清掉这批项目吗？</AlertDialogTitle>
-              <AlertDialogDescription>
-                这只会把当前浏览器里刚刚导出的图片从项目列表里移除，不会影响你已经生成的卡包、图像组或已经写进 Anki 的内容。
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel
-                onClick={() => setExportCleanupPrompt({ open: false, draftIds: [] })}
-              >
-                先保留
-              </AlertDialogCancel>
-              <AlertDialogAction
-                onClick={() => {
-                  removeDraftItemsByIds(exportCleanupPrompt.draftIds)
-                  setExportCleanupPrompt({ open: false, draftIds: [] })
-                  toast.success('已清掉刚刚导出的项目', { description: '当前浏览器里的项目列表已经同步收干净。' })
-                }}
-              >
-                清掉已导出项目
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
       </div>
     </MotionConfig>
   )

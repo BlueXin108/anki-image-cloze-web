@@ -58,7 +58,7 @@ export function nowIso(): string {
 
 export function classifyAnkiFailure(message: string): { title: string; level: AnkiStateLevel; detail: string } {
   if (message.includes('桌面浏览器')) {
-    return { title: '当前环境不支持直连', level: 'error', detail: '请改用桌面浏览器打开本站，再连接你本机的 Anki。' }
+    return { title: '当前环境未能连接到 Anki ', level: 'error', detail: '请改用桌面浏览器打开本站，再连接你本机的 Anki。' }
   }
   if (message.includes('允许来自当前网页的访问')) {
     return { title: 'AnkiConnect 还没有放行这个网页', level: 'warning', detail: '请在本机插件设置里允许当前站点访问，然后重新获取牌组。' }

@@ -19,7 +19,12 @@ type Particle = {
   depth: number
 }
 
-export function LandingBackground() {
+interface LandingBackgroundProps {
+  introReady?: boolean
+  workbenchShifted?: boolean
+}
+
+export function LandingBackground({ introReady: _introReady, workbenchShifted = false }: LandingBackgroundProps) {
   // 陀螺仪与鼠标状态
   const mouseX = useMotionValue(0)
   const mouseY = useMotionValue(0)
@@ -33,6 +38,7 @@ export function LandingBackground() {
   const sceneRotateX = useTransform(sceneSpringY, (v) => v * -6.6)
   const sceneShiftX = useTransform(sceneSpringX, (v) => v * 22)
   const sceneShiftY = useTransform(sceneSpringY, (v) => v * 15)
+  const sceneTravelY = typeof window !== 'undefined' && window.innerWidth < 768 ? -428 : -420
 
   const particles = useMemo<Particle[]>(() => {
     if (typeof window === 'undefined') return []
@@ -55,21 +61,41 @@ export function LandingBackground() {
   }, [])
 
   useEffect(() => {
+    let initialMouseX: number | null = null
+    let initialMouseY: number | null = null
+    let baseBeta: number | null = null
+    let baseGamma: number | null = null
+
     const handleMouseMove = (e: MouseEvent) => {
+      if (initialMouseX === null || initialMouseY === null) {
+        initialMouseX = e.clientX
+        initialMouseY = e.clientY
+      }
       mouseX.set(e.clientX)
       mouseY.set(e.clientY)
-      const normalizedX = (e.clientX / window.innerWidth - 0.5) * 2
-      const normalizedY = (e.clientY / window.innerHeight - 0.5) * 2
+      const deltaX = e.clientX - initialMouseX
+      const deltaY = e.clientY - initialMouseY
+      const normalizedX = (deltaX / window.innerWidth) * 2
+      const normalizedY = (deltaY / window.innerHeight) * 2
       sceneX.set(Math.max(-1, Math.min(1, normalizedX)))
       sceneY.set(Math.max(-1, Math.min(1, normalizedY)))
     }
 
     const handleOrientation = (e: DeviceOrientationEvent) => {
       if (e.beta !== null && e.gamma !== null) {
-        gyroX.set(Math.max(-20, Math.min(20, e.beta / 3)))
-        gyroY.set(Math.max(-20, Math.min(20, e.gamma / 3)))
-        sceneX.set(Math.max(-1, Math.min(1, e.gamma / 18)))
-        sceneY.set(Math.max(-1, Math.min(1, e.beta / 24)))
+        if (baseBeta === null) baseBeta = e.beta
+        if (baseGamma === null) baseGamma = e.gamma
+        let deltaBeta = e.beta - baseBeta
+        let deltaGamma = e.gamma - baseGamma
+        if (deltaBeta > 180) deltaBeta -= 360
+        if (deltaBeta < -180) deltaBeta += 360
+        if (deltaGamma > 180) deltaGamma -= 360
+        if (deltaGamma < -180) deltaGamma += 360
+
+        gyroX.set(Math.max(-20, Math.min(20, deltaBeta / 3)))
+        gyroY.set(Math.max(-20, Math.min(20, deltaGamma / 3)))
+        sceneX.set(Math.max(-1, Math.min(1, deltaGamma / 18)))
+        sceneY.set(Math.max(-1, Math.min(1, deltaBeta / 24)))
       }
     }
 
@@ -92,16 +118,21 @@ export function LandingBackground() {
       className="absolute inset-0 z-0 overflow-hidden bg-background pointer-events-none opacity-0 will-change-[opacity]"
     >
       <motion.div
-        style={{
-          rotateX: sceneRotateX,
-          rotateY: sceneRotateY,
-          x: sceneShiftX,
-          y: sceneShiftY,
-          transformPerspective: 1400,
-          transformStyle: 'preserve-3d',
-        }}
+        animate={{ y: workbenchShifted ? sceneTravelY : 0 }}
+        transition={{ duration: 1.5, ease: [0.54, 0, 0, 0.99] }}
         className="absolute inset-0 will-change-transform"
       >
+        <motion.div
+          style={{
+            rotateX: sceneRotateX,
+            rotateY: sceneRotateY,
+            x: sceneShiftX,
+            y: sceneShiftY,
+            transformPerspective: 1400,
+            transformStyle: 'preserve-3d',
+          }}
+          className="absolute inset-0 will-change-transform"
+        >
         <motion.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
@@ -121,6 +152,7 @@ export function LandingBackground() {
             sceneSpringY={sceneSpringY}
           />
         ))}
+        </motion.div>
       </motion.div>
       
       <motion.div
@@ -128,6 +160,18 @@ export function LandingBackground() {
         animate={{ opacity: 0.9 }}
         transition={{ duration: 1.2, ease: [0, 0.43, 0, 0.99], delay: 0.14 }}
         className="absolute top-0 left-0 right-0 h-64 opacity-0 will-change-[opacity] bg-gradient-to-b from-background to-transparent"
+      />
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ duration: 1.2, ease: [0, 0.43, 0, 0.99], delay: 0.18 }}
+        className="absolute inset-0 opacity-0 will-change-[opacity]"
+        style={{
+          background:
+            typeof window !== 'undefined' && window.innerWidth < 768
+              ? 'radial-gradient(ellipse 76% 42% at 50% 40%, rgba(248,250,252,0.9) 0%, rgba(248,250,252,0.72) 40%, rgba(248,250,252,0.26) 72%, rgba(248,250,252,0) 100%)'
+              : 'radial-gradient(ellipse 60% 36% at 50% 40%, rgba(248,250,252,0.94) 0%, rgba(248,250,252,0.76) 38%, rgba(248,250,252,0.28) 72%, rgba(248,250,252,0) 100%)',
+        }}
       />
       <motion.div
         initial={{ opacity: 0 }}
@@ -217,7 +261,7 @@ function ParticleItem({ p, mouseX, mouseY, gyroX, gyroY, sceneSpringX, sceneSpri
     >
       {p.type === 'mask' ? (
         <div 
-          className="w-full h-full border-[2.5px] border-dashed border-current rounded-2xl shadow-[inset_0_0_30px_rgba(var(--primary-rgb),0.05)] backdrop-blur-[3px]"
+          className="w-full h-full border-[2.5px] border-dashed border-current rounded-2xl bg-foreground/10 shadow-[inset_0_0_30px_rgba(var(--primary-rgb),0.05)] backdrop-blur-[3px]"
           style={{ borderRadius: p.size * 0.18 }}
         />
       ) : (

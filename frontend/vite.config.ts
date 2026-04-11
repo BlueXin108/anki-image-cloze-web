@@ -3,6 +3,7 @@ import type { Plugin } from 'vite'
 import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
 import { defineConfig } from 'vite'
+import { reactClickToComponent } from "vite-plugin-react-click-to-component";
 
 // https://vite.dev/config/
 function hashString(value: string): string {
@@ -139,7 +140,7 @@ function pwaServiceWorkerPlugin(): Plugin {
 }
 
 export default defineConfig({
-  plugins: [react(), tailwindcss(), pwaServiceWorkerPlugin()],
+  plugins: [react(), tailwindcss(), pwaServiceWorkerPlugin(), reactClickToComponent()],
   optimizeDeps: {
     // Keep Radix out of the prebundle cache so our compose-refs alias is
     // always resolved from source instead of being frozen into .vite deps.

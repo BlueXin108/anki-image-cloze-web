@@ -23,7 +23,6 @@ type UseExportActionsOptions = {
     taskId: 'export',
     patch: { state?: 'idle' | 'running' | 'success' | 'error'; progress?: number; detail?: string },
   ) => void
-  promptExportCleanup: (draftIds: string[]) => void
 }
 
 export function useExportActions({
@@ -31,7 +30,6 @@ export function useExportActions({
   workbenchSettings,
   deviceProfile,
   updateStatusTask,
-  promptExportCleanup,
 }: UseExportActionsOptions) {
   const importDraftsToAnki = async (targets: DraftListItem[], quality: number): Promise<ExportResult> => {
     if (targets.length === 0) {
@@ -95,7 +93,6 @@ export function useExportActions({
       toast.success('当前项目导出已完成', {
         description: failedCount > 0 ? `成功 ${successCount} 项，失败 ${failedCount} 项。` : `本次共成功写入 ${successCount} 项。`,
       })
-      promptExportCleanup(result.results.filter((entry) => entry.ok).map((entry) => entry.draft_id))
     }
     if (failedCount > 0) {
       const firstFailed = result.results.find((entry) => !entry.ok)
@@ -197,7 +194,6 @@ export function useExportActions({
             ? '下载完成后，可以手动用 Anki 或 AnkiDroid 导入。'
             : '当前浏览器没有自动触发下载，请使用下方保存入口手动处理。',
       })
-      promptExportCleanup(targets.map((item) => item.draft.id))
       return { successCount: targets.length, failedCount: 0 }
     } catch (error) {
       updateStatusTask('export', { state: 'error', progress: 100, detail: error instanceof Error ? error.message : '生成 APKG 卡包失败。' })
@@ -278,7 +274,6 @@ export function useExportActions({
               ? `已按 ${imageGroupFormatLabel} 图片组开始下载压缩包。`
               : `已按 ${imageGroupFormatLabel} 图片组准备好手动保存入口。`,
       })
-      promptExportCleanup(targets.map((item) => item.draft.id))
       return { successCount: targets.length, failedCount: 0 }
     } catch (error) {
       updateStatusTask('export', { state: 'error', progress: 100, detail: error instanceof Error ? error.message : '生成纯图像组失败。' })

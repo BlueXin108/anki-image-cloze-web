@@ -86,6 +86,7 @@ export interface WorkbenchSettings {
   imageGroupExportQuality: number
   cardGenerationMode: CardGenerationMode
   disableAnimations: boolean
+  modernFloatingToolbar: boolean
 }
 
 export interface PersistedDraftListItem {

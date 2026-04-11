@@ -29,6 +29,7 @@ interface FocusEditorDialogProps {
   disableWheelResize?: boolean
   overlayClassName?: string
   contentClassName?: string
+  modernFloatingToolbar?: boolean
 }
 
 const focusShortcuts = [
@@ -65,6 +66,7 @@ export function FocusEditorDialog({
   disableWheelResize = false,
   overlayClassName,
   contentClassName,
+  modernFloatingToolbar,
 }: FocusEditorDialogProps) {
   const [mounted, setMounted] = useState(false)
   const [mobileSessionKey, setMobileSessionKey] = useState(0)
@@ -165,7 +167,7 @@ export function FocusEditorDialog({
             </Button>
           </DialogClose>
         </DialogHeader>
-        <div className={cn("relative min-h-0 overflow-hidden", touchOptimized ? "px-2 py-2" : "flex-1 px-4 py-3 md:px-5 md:py-4")}>
+        <div className={cn("relative min-h-0 overflow-hidden flex flex-col flex-1", touchOptimized ? "px-2 py-2" : "px-4 py-3 md:px-5 md:py-4")}>
           {canGoPrevious ? (
             <Button
               type="button"
@@ -206,7 +208,7 @@ export function FocusEditorDialog({
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.98 }}
               transition={{ duration: 0.35, ease: [0, 0.43, 0, 0.99] }}
-              className={cn("w-full relative", !touchOptimized && "h-full")}
+              className="w-full relative flex-1 flex flex-col min-h-0"
             >
               <ImageEditor
                 draft={item.draft}
@@ -225,6 +227,7 @@ export function FocusEditorDialog({
                 onNextItem={onNextItem}
                 canGoPrevious={canGoPrevious}
                 canGoNext={canGoNext}
+                modernFloatingToolbar={modernFloatingToolbar}
               />
             </motion.div>
           </AnimatePresence>

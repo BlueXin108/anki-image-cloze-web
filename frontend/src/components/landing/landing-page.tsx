@@ -3,13 +3,14 @@ import { CameraIcon, FolderUpIcon, RotateCcwIcon, UploadCloudIcon, UploadIcon } 
 import { useRef, useState, type ChangeEvent } from 'react'
 
 import { Button } from '@/components/ui/button'
-import { LandingBackground } from './landing-background'
-
+import { Spinner } from '@/components/ui/spinner'
+import { cn } from '@/lib/utils'
 interface LandingPageProps {
   onIngest: (files: FileList | File[], label: string) => Promise<void>
   onRestore: () => Promise<void>
   isImporting: boolean
   recoverableSummary: { itemCount: number; savedAt: string } | null
+  introReady: boolean
   mobileOptimized?: boolean
   onCapturePhoto?: () => void
   onImportFiles?: () => void
@@ -59,11 +60,18 @@ function layoutIntroTransition(delay: number, duration = 1): Transition {
 
 const introSeedClass = 'opacity-0 will-change-[opacity,transform]'
 
+function getIntroMotion(introReady: boolean, hiddenY: number) {
+  return introReady
+    ? { opacity: 1, y: 0 }
+    : { opacity: 0, y: hiddenY }
+}
+
 export function LandingPage({
   onIngest,
   onRestore,
   isImporting,
   recoverableSummary,
+  introReady,
   mobileOptimized = false,
   onCapturePhoto,
   onImportFiles,
@@ -185,104 +193,111 @@ export function LandingPage({
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
     >
-      <LandingBackground />
-
-      <div className="relative z-10 max-w-3xl space-y-8 sm:space-y-10">
+      <div className="relative z-10 max-w-3xl space-y-8 opacity-0 will-change-[opacity] sm:space-y-10" style={{ opacity: introReady ? 1 : 0 }}>
         <div className="space-y-5 sm:space-y-6">
           <motion.div
             layoutId="header-icon"
-            initial={{ opacity: 0, y: 38 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={layoutIntroTransition(0.04)}
-            className={`mx-auto flex size-16 shrink-0 items-center justify-center rounded-2xl bg-gray-200/0 text-foreground  sm:size-20 ${introSeedClass}`}
+            initial={false}
+            animate={getIntroMotion(introReady, 38)}
+            transition={layoutIntroTransition(0)}
+            className={`relative z-50 mx-auto flex size-16 shrink-0 items-center justify-center rounded-2xl bg-gray-200/0 text-foreground sm:size-20 will-change-[transform]`}
           >
-            <AnkiIcon className="size-12 text-foreground/60 sm:size-10" />
+            <AnkiIcon className={cn("size-16",mobileOptimized&&"size-12 text-foreground/60 sm:size-10") }/>
           </motion.div>
           <div className="space-y-1.5 sm:space-y-2">
             <motion.h1 
               layoutId="header-title"
-              initial={{ opacity: 0, y: 46 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={layoutIntroTransition(0.16)}
-              className={`text-[2rem] leading-[1.05] sm:text-4xl md:text-6xl font-bold tracking-tight text-foreground ${introSeedClass}`}
+              initial={false}
+              animate={getIntroMotion(introReady, 46)}
+              transition={layoutIntroTransition(0)}
+              className={`relative z-50 text-[2rem] leading-[1.05] sm:text-4xl md:text-6xl font-bold tracking-tight text-foreground will-change-[transform]`}
             >
               Anki-图像遮罩工具
             </motion.h1>
-            <div className="mx-auto max-w-[20rem] text-[15px] leading-7 text-muted-foreground font-medium sm:max-w-2xl sm:text-xl md:text-2xl sm:leading-relaxed">
+            <div
+              className={cn(
+                "mx-auto max-w-[24rem] text-[12px] leading-[1.35] text-muted-foreground sm:text-xs md:text-[22px] sm:leading-relaxed",
+                mobileOptimized && "max-w-[17.5rem] text-[14px] leading-[1.42]",
+              )}
+            >
               <motion.p
-                initial={{ opacity: 0, y: 52 }}
-                animate={{ opacity: 1, y: 0 }}
+                initial={false}
+                animate={getIntroMotion(introReady, 52)}
+                exit={{ opacity: 0, y: -10, transition: { duration: 0.2, ease: 'easeIn' } }}
                 transition={introTransition(0.42)}
                 className={introSeedClass}
               >
-                极简、高效的 Anki 图片遮挡卡片编辑工具。
+                高效的 Anki 图片遮挡卡片编辑工具
               </motion.p>
               <motion.p
-                initial={{ opacity: 0, y: 56 }}
-                animate={{ opacity: 1, y: 0 }}
+                initial={false}
+                animate={getIntroMotion(introReady, 56)}
+                exit={{ opacity: 0, y: -10, transition: { duration: 0.2, ease: 'easeIn', delay: 0.05 } }}
                 transition={introTransition(0.56)}
                 className={introSeedClass}
               >
-                本地处理，无需上传，隐私安全。
+                本地处理，无需上传，隐私安全
               </motion.p>
             </div>
           </div>
         </div>
 
           <motion.div
-            initial={{ opacity: 0, y: 24 }}
-            animate={{ opacity: 1, y: 0 }}
+            initial={false}
+            animate={getIntroMotion(introReady, 24)}
+            exit={{ opacity: 0, y: -10, transition: { duration: 0.2, ease: 'easeIn', delay: 0.1 } }}
             transition={introTransition(0.72)}
-            className={`flex flex-col sm:flex-row items-center justify-center gap-3 sm:gap-4 pt-3 sm:pt-4 ${introSeedClass}`}
+            className={`flex flex-col sm:flex-row items-center justify-center gap-3 sm:gap-4 pt-3 sm:pt-4 w-full mx-auto max-w-lg sm:max-w-none ${introSeedClass}`}
           >
           <motion.div
             layoutId="btn-upload"
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
+            initial={false}
+            animate={getIntroMotion(introReady, 20)}
+            exit={{ opacity: 0, scale: 0.95, transition: { duration: 0.2, ease: 'easeIn', delay: 0.15 } }}
             transition={layoutIntroTransition(0.72)}
-            className={`w-full sm:w-auto ${introSeedClass}`}
+            className={`w-full sm:w-auto shrink-1 ${introSeedClass}`}
           >
             <Button 
               size="lg" 
-              className="h-12 w-full rounded-2xl gap-3 text-base shadow-xl shadow-primary/20 transition-all active:scale-[0.98] hover:shadow-primary/30 sm:h-14 sm:px-8 sm:text-lg"
+              className="shadow-none group h-12 w-full rounded-2xl gap-3 text-base  shadow-primary/20 transition-all active:scale-[0.98] hover:shadow-primary/30 sm:h-14 sm:px-8 sm:text-lg"
               onClick={() => fileInputRef.current?.click()}
               disabled={isImporting}
             >
-              <UploadIcon className="size-5" />
+              {isImporting ? <Spinner className="size-5" /> : <UploadIcon className="size-5 transition-transform group-hover:-translate-y-0.5" />}
               上传图片
             </Button>
           </motion.div>
           {mobileOptimized ? (
-            <div className="grid w-full grid-cols-2 gap-3 sm:gap-4">
+            <div className={`grid w-full gap-3 sm:gap-4 ${onCapturePhoto ? 'grid-cols-2' : 'grid-cols-1'}`}>
               {onCapturePhoto ? (
                 <motion.div
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
+                  initial={false}
+                  animate={getIntroMotion(introReady, 20)}
                   transition={introTransition(0.82)}
                   className={`w-full ${introSeedClass}`}
                 >
                   <Button
                     variant="secondary"
                     size="lg"
-                    className="h-12 w-full rounded-2xl gap-3 text-base bg-background/50 backdrop-blur-sm border-border/50 transition-all active:scale-[0.98] hover:bg-background/80"
+                    className="shadow-none group h-12 w-full rounded-2xl gap-3 text-base bg-background/50 backdrop-blur-sm border-border/50 transition-all active:scale-[0.98] hover:bg-background/80"
                     onClick={onCapturePhoto}
                     disabled={isImporting}
                   >
-                    <CameraIcon className="size-5" />
+                    {isImporting ? <Spinner className="size-5" /> : <CameraIcon className="size-5 transition-transform group-hover:-translate-y-0.5" />}
                     拍摄
                   </Button>
                 </motion.div>
               ) : null}
               <motion.div
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
+                initial={false}
+                animate={getIntroMotion(introReady, 20)}
                 transition={introTransition(onCapturePhoto ? 0.9 : 0.82)}
                 className={`w-full ${introSeedClass}`}
               >
                 <Button 
                   variant="secondary" 
                   size="lg" 
-                  className="h-12 w-full rounded-2xl gap-3 text-base bg-background/50 backdrop-blur-sm border-border/50 transition-all active:scale-[0.98] hover:bg-background/80"
+                  className="shadow-none group h-12 w-full rounded-2xl gap-3 text-base bg-background/50 backdrop-blur-sm border-border/50 transition-all active:scale-[0.98] hover:bg-background/80"
                   onClick={() => {
                     if (onImportFiles) {
                       onImportFiles()
@@ -292,7 +307,7 @@ export function LandingPage({
                   }}
                   disabled={isImporting}
                 >
-                  <FolderUpIcon className="size-5" />
+                  {isImporting ? <Spinner className="size-5" /> : <FolderUpIcon className="size-5 transition-transform group-hover:-translate-y-0.5" />}
                   文件管理器
                 </Button>
               </motion.div>
@@ -300,19 +315,20 @@ export function LandingPage({
           ) : (
             <motion.div
               layoutId="btn-import-folder"
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
+              initial={false}
+              animate={getIntroMotion(introReady, 20)}
+              exit={{ opacity: 0, scale: 0.95, transition: { duration: 0.2, ease: 'easeIn', delay: 0.15 } }}
               transition={layoutIntroTransition(0.82)}
-              className={`w-full sm:w-auto ${introSeedClass}`}
+              className={`w-full sm:w-auto shrink-1 ${introSeedClass}`}
             >
               <Button 
                 variant="secondary" 
                 size="lg" 
-                className="h-12 w-full rounded-2xl gap-3 text-base bg-background/50 backdrop-blur-sm border-border/50 transition-all active:scale-[0.98] hover:bg-background/80 sm:h-14 sm:px-8 sm:text-lg"
+                className="shadow-none group h-12 w-full rounded-2xl gap-3 text-base bg-background/50 backdrop-blur-sm border-border/50 transition-all active:scale-[0.98] hover:bg-background/80 sm:h-14 sm:px-8 sm:text-lg"
                 onClick={() => folderInputRef.current?.click()}
                 disabled={isImporting}
               >
-                <FolderUpIcon className="size-5" />
+                {isImporting ? <Spinner className="size-5" /> : <FolderUpIcon className="size-5 transition-transform group-hover:-translate-y-0.5" />}
                 导入文件夹
               </Button>
             </motion.div>
@@ -322,16 +338,21 @@ export function LandingPage({
         <AnimatePresence>
           {recoverableSummary && (
             <motion.div
-              initial={{ opacity: 0, y: 20, scale: 0.98 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.95 }}
+              initial={false}
+              animate={introReady ? { opacity: 1, y: 0, scale: 1 } : { opacity: 0, y: 20, scale: 0.98 }}
+              exit={{ opacity: 0, scale: 0.95, transition: { duration: 0.2, ease: 'easeIn', delay: 0.2 } }}
               transition={introTransition(0.86)}
-              className={`pt-1 sm:pt-2 ${introSeedClass}`}
+              className={`relative z-20 pt-1 sm:pt-2 pointer-events-auto ${introSeedClass}`}
             >
               <button
-                onClick={onRestore}
+                type="button"
+                onClick={(event) => {
+                  event.preventDefault()
+                  event.stopPropagation()
+                  void onRestore()
+                }}
                 disabled={isImporting}
-                className="group mx-auto flex items-center gap-2.5 rounded-md  bg-muted/80 px-4 py-2.5 text-muted-foreground transition-all active:scale-[0.98] hover:bg-muted/60 hover:text-foreground sm:gap-3 sm:px-5 sm:py-3"
+                className="group relative z-20 mx-auto flex items-center gap-2.5 rounded-md bg-muted/80 px-4 py-2.5 text-muted-foreground transition-all active:scale-[0.98] hover:bg-muted/60 hover:text-foreground sm:gap-3 sm:px-5 sm:py-3"
               >
                 <RotateCcwIcon className="size-4 group-hover:rotate-[-45deg] transition-transform" />
                 <div className="text-xs font-medium sm:text-sm">
@@ -343,11 +364,11 @@ export function LandingPage({
           )}
         </AnimatePresence>
 
-        <div className="flex flex-wrap items-center justify-center gap-x-5 gap-y-2 pt-6 text-xs font-medium text-muted-foreground/60 sm:gap-8 sm:pt-8 sm:text-sm">
+        <motion.div exit={{ opacity: 0, transition: { duration: 0.2, ease: 'easeIn', delay: 0.25 } }} className="flex flex-wrap items-center justify-center gap-x-5 gap-y-2 pt-6 text-xs font-medium text-muted-foreground/60 sm:gap-8 sm:pt-8 sm:text-sm">
           <motion.div
             className={`flex items-center gap-2 ${introSeedClass}`}
-            initial={{ opacity: 0, y: 18 }}
-            animate={{ opacity: 1, y: 0 }}
+            initial={false}
+            animate={getIntroMotion(introReady, 18)}
             transition={introTransition(1.5)}
           >
             {/* <div className="size-1.5 rounded-full bg-current opacity-40" /> */}
@@ -355,23 +376,25 @@ export function LandingPage({
           </motion.div>
           <motion.div
             className={`flex items-center gap-2 ${introSeedClass}`}
-            initial={{ opacity: 0, y: 18 }}
-            animate={{ opacity: 1, y: 0 }}
+            initial={false}
+            animate={getIntroMotion(introReady, 18)}
             transition={introTransition(1.62)}
           >
             {/* <div className="size-1.5 rounded-full bg-current opacity-40" /> */}
             支持 APKG 导出
           </motion.div>
-          <motion.div
-            className={`flex items-center gap-2 ${introSeedClass}`}
-            initial={{ opacity: 0, y: 18 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={introTransition(1.74)}
-          >
-            {/* <div className="size-1.5 rounded-full bg-current opacity-40" /> */}
-            AnkiConnect 直连
-          </motion.div>
-        </div>
+          {!mobileOptimized && (
+            <motion.div
+              className={`flex items-center gap-2 ${introSeedClass}`}
+              initial={false}
+              animate={getIntroMotion(introReady, 18)}
+              transition={introTransition(1.74)}
+            >
+              {/* <div className="size-1.5 rounded-full bg-current opacity-40" /> */}
+              AnkiConnect 直连
+            </motion.div>
+          )}
+        </motion.div>
       </div>
 
       {/* 隐藏的 Input */}
@@ -415,12 +438,13 @@ export function LandingPage({
       </AnimatePresence>
 
       <motion.footer
-        initial={{ opacity: 0, y: 16 }}
-        animate={{ opacity: 1, y: 0 }}
+        initial={false}
+        animate={getIntroMotion(introReady, 16)}
+        exit={{ opacity: 0, y: 5, transition: { duration: 0.2, ease: 'easeIn', delay: 0.3 } }}
         transition={introTransition(1.34)}
         className={`absolute bottom-6 left-0 right-0 z-10 text-center text-[11px] text-muted-foreground/40 font-medium sm:bottom-8 sm:text-xs ${introSeedClass}`}
       >
-        基于本地构建的 Web 应用，处理均在本地完成运算
+        基于本地构建的 Web 应用，处理均在本地完成
       </motion.footer>
     </div>
   )

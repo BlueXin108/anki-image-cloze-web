@@ -149,7 +149,7 @@ export function ZoomableImagePreviewCard({
         <DialogContent
           overlayClassName={dialogOverlayClassName}
           className={cn(
-            "w-[92vw] max-w-[92vw] overflow-hidden rounded-[1.5rem] border-border/70 bg-background/95 p-0 shadow-2xl sm:w-[64vw] sm:max-w-[64vw] sm:rounded-[1.75rem] md:w-[60vw]",
+            "w-[92vw] max-w-[92vw] overflow-hidden rounded-[1.5rem] border-border/70 bg-background/95 p-0 shadow-2xl sm:w-[64vw] sm:max-w-[64vw] sm:rounded-[1.75rem] md:w-[60vw] py-2 px-2 pt-4",
             dialogContentClassName,
           )}
         >

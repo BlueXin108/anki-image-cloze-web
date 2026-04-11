@@ -4,7 +4,7 @@ import { toast } from 'sonner'
 import { parseTagInput } from '@/lib/workbench-state'
 import type { CardDraft, DraftListItem } from '@/types'
 
-export type ExportFlowStage = 'review' | 'confirm'
+export type ExportFlowStage = 'review' | 'confirm' | 'success'
 export type ExportDestination = 'anki' | 'apkg' | 'image-group'
 type ExportDraftEdit = { deck: string; tags: string[] }
 
@@ -42,6 +42,8 @@ export function useExportFlow({
   const [deckInput, setDeckInput] = useState('')
   const [tagsInput, setTagsInput] = useState('')
   const [quality, setQuality] = useState(50)
+  const [exportCleanupDraftIds, setExportCleanupDraftIds] = useState<string[]>([])
+  const [lastExportDestination, setLastExportDestination] = useState<ExportDestination>('apkg')
   const deferredPersistTimeoutRef = useRef<number | null>(null)
 
   const persistDraftEdit = async (draftId: string, deck: string, tags: string[]) => {
@@ -115,6 +117,7 @@ export function useExportFlow({
     setExportIndex(initialIndex)
     setReviewedDraftIds([])
     setExportDraftEdits({})
+    setExportCleanupDraftIds([])
     setExportDialogOpen(true)
     return true
   }
@@ -130,6 +133,7 @@ export function useExportFlow({
       setExportStage('review')
       setReviewedDraftIds([])
       setExportDraftEdits({})
+      setExportCleanupDraftIds([])
     }
   }
 
@@ -225,10 +229,26 @@ export function useExportFlow({
         })
         .filter((item) => !item.image.ignored && item.draft.masks.length > 0 && Boolean(item.draft.deck?.trim()))
       const result = await exportDrafts(targets, destination, quality)
-      if (result.failedCount === 0) {
-        setExportDialogOpen(false)
+      if (result.failedCount === 0 && result.successCount > 0) {
+        setLastExportDestination(destination)
+        setExportCleanupDraftIds(targets.map((item) => item.draft.id))
+        setExportStage('success')
       }
     })
+  }
+
+  const dismissExportSuccess = () => {
+    setExportCleanupDraftIds([])
+    setExportStage('review')
+    setExportDialogOpen(false)
+  }
+
+  const clearExportedDraftsAndClose = () => {
+    const draftIds = [...exportCleanupDraftIds]
+    setExportCleanupDraftIds([])
+    setExportStage('review')
+    setExportDialogOpen(false)
+    return draftIds
   }
 
   return {
@@ -239,6 +259,8 @@ export function useExportFlow({
     deckInput,
     tagsInput,
     quality,
+    exportCleanupDraftIds,
+    lastExportDestination,
     setDeckInput,
     setTagsInput,
     setQuality,
@@ -252,5 +274,7 @@ export function useExportFlow({
     goToExportCard,
     selectExportCardWithAutoSave,
     exportAllFromFlow,
+    dismissExportSuccess,
+    clearExportedDraftsAndClose,
   }
 }

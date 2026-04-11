@@ -21,11 +21,8 @@ const pageVariants = {
       },
   },
   exit: {
-    opacity: 0,
-    y: -12,
     transition: {
-      duration: 0.28,
-      ease: pageEase,
+      duration: 1.5,
     },
   },
 }

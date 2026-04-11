@@ -40,8 +40,9 @@ function AlertDialogOverlay({
 
 function AlertDialogContent({
   className,
+  size,
   ...props
-}: React.ComponentProps<typeof AlertDialogPrimitive.Content>) {
+}: React.ComponentProps<typeof AlertDialogPrimitive.Content> & { size?: "default" | "sm" }) {
   return (
     <AlertDialogPortal>
       <AlertDialogOverlay />
@@ -49,6 +50,7 @@ function AlertDialogContent({
         data-slot="alert-dialog-content"
         className={cn(
           "fixed top-1/2 left-1/2 z-50 grid w-full max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 gap-4 rounded-xl bg-popover p-4 text-sm text-popover-foreground ring-1 ring-foreground/10 duration-400 ease-[cubic-bezier(0,.43,0,.99)] outline-none sm:max-w-md data-open:animate-in data-open:fade-in-0 data-open:zoom-in-[0.98] data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-[0.98]",
+          size === "sm" && "sm:max-w-sm gap-3 p-5",
           className,
         )}
         {...props}
@@ -109,13 +111,29 @@ function AlertDialogDescription({
   )
 }
 
+function AlertDialogMedia({
+  className,
+  ...props
+}: React.ComponentProps<"div">) {
+  return (
+    <div
+      data-slot="alert-dialog-media"
+      className={cn(
+        "mx-auto flex w-full max-w-[15rem] items-center justify-center overflow-hidden rounded-[1.75rem] bg-gradient-to-b from-muted/50 via-background to-transparent",
+        className,
+      )}
+      {...props}
+    />
+  )
+}
+
 function AlertDialogAction({
   className,
   ...props
 }: React.ComponentProps<typeof AlertDialogPrimitive.Action>) {
   return (
     <AlertDialogPrimitive.Action asChild>
-      <Button className={cn(className)} {...props} />
+      <Button className={cn(className)} size='lg' {...props} />
     </AlertDialogPrimitive.Action>
   )
 }
@@ -126,7 +144,7 @@ function AlertDialogCancel({
 }: React.ComponentProps<typeof AlertDialogPrimitive.Cancel>) {
   return (
     <AlertDialogPrimitive.Cancel asChild>
-      <Button variant="outline" className={cn(className)} {...props} />
+      <Button variant="outline" size='lg' className={cn(className)} {...props} />
     </AlertDialogPrimitive.Cancel>
   )
 }
@@ -139,6 +157,7 @@ export {
   AlertDialogDescription,
   AlertDialogFooter,
   AlertDialogHeader,
+  AlertDialogMedia,
   AlertDialogPortal,
   AlertDialogTitle,
   AlertDialogTrigger,

@@ -118,14 +118,14 @@ function statusLabel(state: AnkiConnectionState['level']) {
   }
 }
 
-function statusBadgeVariant(state: AnkiConnectionState['level']) {
+function statusBadgeVariant(state: AnkiConnectionState['level']): Parameters<typeof Badge>[0]['variant'] {
   switch (state) {
     case 'success':
-      return 'secondary'
+      return 'ghost'
     case 'warning':
-      return 'outline'
+      return 'ghost'
     default:
-      return 'outline'
+      return 'ghost'
   }
 }
 
@@ -134,11 +134,11 @@ function statusBadgeClassName(state: AnkiConnectionState['level']) {
     case 'success':
       return ''
     case 'warning':
-      return 'border-amber-300/70 bg-amber-50/80 text-amber-900'
+      return 'border-gray-300/70 border-none bg-gray-50/80 text-slate-900'
     case 'error':
-      return 'border-slate-300/80 bg-slate-100/85 text-slate-700'
+      return 'border-gray-300/80 border-none bg-gray-100/85 text-slate-700'
     default:
-      return 'border-border/70 bg-muted/15 text-muted-foreground'
+      return 'border-border/0 border-none bg-muted/15 text-muted-foreground'
   }
 }
 
@@ -420,6 +420,7 @@ export function DeckPicker({
   const treeNodes = useMemo(() => buildDeckTree(filteredDecks), [filteredDecks])
   const normalizedValue = value.trim()
   const hasExactDeck = decks.includes(normalizedValue)
+  const showCreateDeckAction = !isLocalMode && ankiState.ok && !!normalizedValue && !hasExactDeck
   const suggestions = useMemo(() => suggestDecks(decks, normalizedValue), [decks, normalizedValue])
   const quickPicks = useMemo(
     () => deckQuickPicks.filter((deck) => deck !== normalizedValue).slice(0, 20),
@@ -443,9 +444,9 @@ export function DeckPicker({
   const deckBrowser = (
     <Dialog open={browserOpen} onOpenChange={setBrowserOpen}>
       <DialogTrigger asChild>
-        <Button variant="outline" size={embedded || compact ? 'sm' : 'default'}>
+        <Button variant="default" size={embedded || compact ? 'sm' : 'default'}>
           <FolderTreeIcon data-icon="inline-start" />
-          浏览器
+          浏览所有牌组
         </Button>
       </DialogTrigger>
       <DialogContent 
@@ -539,10 +540,12 @@ export function DeckPicker({
                   {isRefreshing ? <Spinner data-icon="inline-start" /> : <RefreshCcwIcon data-icon="inline-start" />}
                   刷新牌组
                 </Button>
-                <Button variant="secondary" onClick={onCreateDeck} disabled={!normalizedValue || hasExactDeck}>
-                  {isCreating ? <Spinner data-icon="inline-start" /> : <PlusIcon data-icon="inline-start" />}
-                  新建牌组
-                </Button>
+                {showCreateDeckAction ? (
+                  <Button variant="secondary" onClick={onCreateDeck}>
+                    {isCreating ? <Spinner data-icon="inline-start" /> : <PlusIcon data-icon="inline-start" />}
+                    新建牌组
+                  </Button>
+                ) : null}
               </>
             ) : null}
             <Button onClick={onSave} disabled={!normalizedValue}>
@@ -575,14 +578,16 @@ export function DeckPicker({
         {deckBrowser}
         {!isLocalMode ? (
           <>
-            <Button variant="outline" size="sm" onClick={onRefreshDecks}>
+            <Button variant="ghost" size="sm" onClick={onRefreshDecks}>
               {isRefreshing ? <Spinner data-icon="inline-start" /> : <RefreshCcwIcon data-icon="inline-start" />}
               获取牌组
             </Button>
-            <Button variant="secondary" size="sm" onClick={onCreateDeck} disabled={!normalizedValue || hasExactDeck}>
-              {isCreating ? <Spinner data-icon="inline-start" /> : <PlusIcon data-icon="inline-start" />}
-              新建
-            </Button>
+            {showCreateDeckAction ? (
+              <Button variant="ghost" size="sm" onClick={onCreateDeck}>
+                {isCreating ? <Spinner data-icon="inline-start" /> : <PlusIcon data-icon="inline-start" />}
+                在Anki中新建
+              </Button>
+            ) : null}
           </>
         ) : null}
       </div>
@@ -608,10 +613,12 @@ export function DeckPicker({
               {isRefreshing ? <Spinner data-icon="inline-start" /> : <RefreshCcwIcon data-icon="inline-start" />}
               获取牌组
             </Button>
-            <Button variant="secondary" size={compact ? 'sm' : 'default'} onClick={onCreateDeck} disabled={!normalizedValue || hasExactDeck}>
-              {isCreating ? <Spinner data-icon="inline-start" /> : <PlusIcon data-icon="inline-start" />}
-              新建
-            </Button>
+            {showCreateDeckAction ? (
+              <Button variant="ghost" size={compact ? 'sm' : 'default'} onClick={onCreateDeck}>
+                {isCreating ? <Spinner data-icon="inline-start" /> : <PlusIcon data-icon="inline-start" />}
+                在Anki中新建
+              </Button>
+            ) : null}
           </>
         ) : null}
       </div>
@@ -643,7 +650,7 @@ export function DeckPicker({
               <span>近期常用牌组</span>
             </div>
             <div className="overflow-hidden rounded-2xl border border-border/60 bg-muted/10">
-              <ScrollArea className="max-h-[8.5rem]">
+              <ScrollArea className="max-h-[4.5rem]">
                 <div className="grid grid-cols-1 gap-2 p-2 sm:grid-cols-2">
                   {quickPicks.map((deck) => (
                     <button
@@ -651,13 +658,14 @@ export function DeckPicker({
                       type="button"
                       onClick={() => commitPickedDeck(deck)}
                       className={cn(
-                        'rounded-xl border px-3 py-2 text-left text-sm transition',
+                        'rounded-xl border-none px-3 py-1 text-left text-sm transition text-[12px] min-h-0 overflow-hidden',
                         value.trim() === deck
                           ? 'border-amber-300/80 bg-amber-50/80'
                           : 'border-border/60 bg-background/85 hover:border-border hover:bg-muted/40',
                       )}
+                      title={deck}
                     >
-                      <div className="line-clamp-2 leading-5">{deck}</div>
+                      <div className="truncate whitespace-nowrap leading-5">{deck}</div>
                     </button>
                   ))}
                 </div>

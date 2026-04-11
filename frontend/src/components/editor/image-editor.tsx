@@ -1,21 +1,14 @@
 import { Fragment, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
-import { ChevronLeftIcon, ChevronRightIcon, CropIcon, PlusIcon, Redo2Icon, RotateCcwIcon, ScanSearchIcon, Trash2Icon, Undo2Icon, EyeIcon, EyeOffIcon } from 'lucide-react'
+import { CropIcon, PlusIcon, RotateCcwIcon, ScanSearchIcon, Undo2Icon, Redo2Icon, Trash2Icon, EyeIcon, EyeOffIcon } from 'lucide-react'
 import { AnimatePresence, motion } from 'framer-motion'
 
 import type { BBox, CardDraft, MaskRect } from '@/types'
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
 import { Kbd } from '@/components/ui/kbd'
-import { Skeleton } from '@/components/ui/skeleton'
+import { ImageEditorInlineNavigation } from '@/components/editor/image-editor-inline-navigation'
+import { ImageEditorLoadingOverlay } from '@/components/editor/image-editor-loading-overlay'
+import { ImageEditorResetDialog } from '@/components/editor/image-editor-reset-dialog'
+import { ImageEditorToolbar } from '@/components/editor/image-editor-toolbar'
 import { cn } from '@/lib/utils'
 
 type ResizeHandle = 'n' | 's' | 'e' | 'w' | 'nw' | 'ne' | 'sw' | 'se'
@@ -110,6 +103,7 @@ interface ImageEditorProps {
   canGoPrevious?: boolean
   canGoNext?: boolean
   onImageHoverChange?: (hovered: boolean) => void
+  modernFloatingToolbar?: boolean
 }
 
 function resolveDisplayedCrop(draft: CardDraft, imageWidth: number, imageHeight: number): BBox {
@@ -403,6 +397,7 @@ export function ImageEditor({
   canGoPrevious = false,
   canGoNext = false,
   onImageHoverChange,
+  modernFloatingToolbar = true,
 }: ImageEditorProps) {
   const normalizedDraftMasks = normalizeMaskGroups(draft.masks)
   const imageRef = useRef<HTMLImageElement | null>(null)
@@ -427,6 +422,12 @@ export function ImageEditor({
   const [showOcrOverlay, setShowOcrOverlay] = useState(false)
   const [showMaskOverlay, setShowMaskOverlay] = useState(true)
   const [sourceImageLoaded, setSourceImageLoaded] = useState(false)
+
+  const scrollViewport = (offsetY: number) => {
+    if (editorViewportRef.current) {
+      editorViewportRef.current.scrollBy({ top: offsetY, behavior: 'smooth' })
+    }
+  }
   const [hoveredMaskId, setHoveredMaskId] = useState<string | null>(null)
   const [imageFrameHovered, setImageFrameHovered] = useState(false)
   const [pointerInsideEditor, setPointerInsideEditor] = useState(false)
@@ -463,6 +464,8 @@ export function ImageEditor({
     selectedGroupIds.length === 1 &&
     masksInGroups(localMasks, selectedGroupIds).length === selectedMaskIds.length
   const showInlineImageNavigation = !focusLayout && (canGoPrevious || canGoNext)
+  const showInlineImageNavigationWhileHovered =
+    showInlineImageNavigation && (_touchOptimized || imageFrameHovered || pointerInsideEditor)
 
   useEffect(() => {
     setSourceImageLoaded(false)
@@ -1208,83 +1211,116 @@ export function ImageEditor({
   // 【核心经验固化】：为什么移动端绝对不能开启此计算逻辑？
   // 当 DialogContent 也是 h-fit 脱离绝对全屏限制时，如果内部 Image 尝试根据父容器的大小（focusViewportSize）去 max-width/max-height 去限制自身，
   // 就会触发“缩小死循环”，因此只要是自适应模式（_touchOptimized），此规则直接 bypass
+  const isFocusImageSmallerThanViewport =
+    focusLayout &&
+    !!focusViewportSize &&
+    imageWidth <= focusViewportSize.width &&
+    imageHeight <= focusViewportSize.height
+  const shouldShrinkFocusCanvas = !!isFocusImageSmallerThanViewport
+  const shouldFillTouchFocusViewport = focusLayout && _touchOptimized && !!focusViewportSize && !isFocusImageSmallerThanViewport
   const focusImageStyle =
-    focusLayout && focusViewportSize && !_touchOptimized
-      ? {
-          maxWidth: `${focusViewportSize.width}px`,
-          maxHeight: `${focusViewportSize.height}px`,
-        }
+    focusLayout && focusViewportSize
+      ? _touchOptimized
+        ? shouldFillTouchFocusViewport
+          ? {
+              width: `${focusViewportSize.width}px`,
+              maxWidth: 'none',
+            }
+          : undefined
+        : {
+            maxWidth: `${focusViewportSize.width}px`,
+            maxHeight: `${focusViewportSize.height}px`,
+          }
       : undefined
   const resolvedImageClassName = cn(
     focusLayout
-      ? 'block h-auto w-auto max-w-full object-contain align-top'
+      ? shouldFillTouchFocusViewport
+        ? 'block h-auto w-full max-w-none object-contain align-top'
+        : 'block h-auto w-auto max-w-full object-contain align-top'
       : 'block h-auto w-auto object-contain align-top',
     imageClassName,
   )
 
   const hasLeadingControls = !readOnly || showOcrTools
+  const useModernUI = modernFloatingToolbar && !readOnly
+  const renderLegacyControls = hasLeadingControls && !useModernUI
+  
+  const modernToolbarElement = useModernUI ? (
+    <ImageEditorToolbar
+      touchOptimized={_touchOptimized}
+      focusLayout={focusLayout}
+      selectedCount={selectedCount}
+      canUndo={undoStackRef.current.length > 0}
+      canRedo={redoStackRef.current.length > 0}
+      showMaskOverlay={showMaskOverlay}
+      showCropSubmit={showCropSubmit}
+      onAddMask={addMask}
+      onRemoveSelected={removeSelectedMask}
+      onUndo={() => void undo()}
+      onRedo={() => void redo()}
+      onScrollUp={() => scrollViewport(-250)}
+      onScrollDown={() => scrollViewport(250)}
+      onToggleMaskOverlay={() => setShowMaskOverlay((current) => !current)}
+      onSubmitCrop={() => void onCropCommit(localCrop)}
+      onReset={() => setResetConfirmOpen(true)}
+    />
+  ) : null
 
   return (
     <div className={cn('flex flex-col gap-4', focusLayout && 'h-full min-h-0 overflow-hidden')}>
-      {hasLeadingControls ? (
-        <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 px-1">
+      {useModernUI && !_touchOptimized && !focusLayout ? (
+        <div className="flex shrink-0 w-full justify-center">{modernToolbarElement}</div>
+      ) : null}
+      
+      {renderLegacyControls ? (
+        <div className="flex flex-col gap-2">
           <div className="flex flex-wrap items-center gap-2">
-            {!readOnly ? (
-              <>
-                <Button variant="outline" size="sm" onClick={addMask}>
-                  <PlusIcon data-icon="inline-start" />
-                  新建遮罩
-                </Button>
-                <Button variant="outline" size="sm" onClick={removeSelectedMask} disabled={selectedCount === 0}>
-                  <Trash2Icon data-icon="inline-start" />
-                  {selectedCount > 1 ? `删除选中（${selectedCount}）` : '删除遮罩'}
-                </Button>
-                <Button variant="outline" size="sm" onClick={() => void undo()} disabled={undoStackRef.current.length === 0}>
-                  <Undo2Icon data-icon="inline-start" />
-                  撤回
-                </Button>
-                <Button variant="outline" size="sm" onClick={() => void redo()} disabled={redoStackRef.current.length === 0}>
-                  <Redo2Icon data-icon="inline-start" />
-                  重做
-                </Button>
-                {showCropSubmit && (
-                  <Button variant="outline" size="sm" onClick={() => onCropCommit(localCrop)}>
-                    <CropIcon data-icon="inline-start" />
-                    提交裁切
-                  </Button>
-                )}
-              </>
-            ) : null}
+            <Button variant="outline" size="sm" onClick={addMask}>
+              <PlusIcon data-icon="inline-start" />
+              新建遮罩
+            </Button>
+            <Button variant="outline" size="sm" onClick={removeSelectedMask} disabled={selectedCount === 0}>
+              <Trash2Icon data-icon="inline-start" />
+              {selectedCount > 1 ? `删除选中（${selectedCount}）` : '删除遮罩'}
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => void undo()} disabled={undoStackRef.current.length === 0}>
+              <Undo2Icon data-icon="inline-start" />
+              撤回
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => void redo()} disabled={redoStackRef.current.length === 0}>
+              <Redo2Icon data-icon="inline-start" />
+              重做
+            </Button>
+            {showCropSubmit && (
+              <Button variant="outline" size="sm" onClick={() => onCropCommit(localCrop)}>
+                <CropIcon data-icon="inline-start" />
+                提交裁切
+              </Button>
+            )}
             {showOcrTools && (
               <Button variant={showOcrOverlay ? 'secondary' : 'outline'} size="sm" onClick={() => setShowOcrOverlay((current) => !current)}>
                 <ScanSearchIcon data-icon="inline-start" />
                 {showOcrOverlay ? '隐藏 OCR 预览' : '显示 OCR 预览'}
               </Button>
             )}
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            {!readOnly ? (
-              <>
-                <Button
-                  variant="outline"
-                  size="icon-sm"
-                  title="重置"
-                  className={cn("size-8")}
-                  onClick={() => setResetConfirmOpen(true)}
-                >
-                  <RotateCcwIcon className="size-4" />
-                </Button>
-                <Button
-                  variant={showMaskOverlay ? 'secondary' : 'outline'}
-                  size="icon-sm"
-                  title={showMaskOverlay ? '隐藏遮罩' : '显示遮罩'}
-                  className={cn("size-8", showMaskOverlay && 'border-amber-400/60 bg-amber-500/10 text-foreground')}
-                  onClick={() => setShowMaskOverlay((current) => !current)}
-                >
-                  {showMaskOverlay ? <EyeIcon className="size-4" /> : <EyeOffIcon className="size-4" />}
-                </Button>
-              </>
-            ) : null}
+            <Button
+              variant={showMaskOverlay ? 'secondary' : 'outline'}
+              size="icon-sm"
+              title={showMaskOverlay ? '隐藏遮罩' : '显示遮罩'}
+              className={cn("size-8", showMaskOverlay && 'border-amber-400/60 bg-amber-500/10 text-foreground')}
+              onClick={() => setShowMaskOverlay((current) => !current)}
+            >
+              {showMaskOverlay ? <EyeIcon className="size-4" /> : <EyeOffIcon className="size-4" />}
+            </Button>
+            <Button
+              variant="outline"
+              size="icon-sm"
+              title="重置"
+              className={cn("size-8")}
+              onClick={() => setResetConfirmOpen(true)}
+            >
+              <RotateCcwIcon className="size-4" />
+            </Button>
           </div>
         </div>
       ) : null}
@@ -1292,8 +1328,9 @@ export function ImageEditor({
       <div
         ref={editorViewportRef}
         className={cn(
-          'relative overflow-hidden rounded-2xl border border-border bg-[radial-gradient(circle_at_top,_rgba(255,202,117,0.14),_transparent_42%),linear-gradient(180deg,rgba(10,14,18,0.06),transparent_30%)] p-4',
-          focusLayout && 'min-h-0 flex flex-1 items-center justify-center overflow-hidden p-2',
+          'relative rounded-2xl border border-border bg-[radial-gradient(circle_at_top,_rgba(255,202,117,0.14),_transparent_42%),linear-gradient(180deg,rgba(10,14,18,0.06),transparent_30%)] p-4',
+          _touchOptimized ? 'overflow-y-auto overflow-x-hidden scrollbar-hide [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden touch-none' : 'overflow-hidden touch-none',
+          focusLayout && 'min-h-0 flex flex-1 p-2',
         )}
         onPointerEnter={() => setPointerInsideEditor(true)}
         onPointerLeave={() => {
@@ -1301,8 +1338,25 @@ export function ImageEditor({
           setHoveredMaskId(null)
         }}
       >
-        <div className={cn('flex justify-center', focusLayout && 'min-h-full min-w-full items-center justify-center')}>
-          <div className={cn('inline-block max-w-full rounded-xl border border-border bg-background/90 shadow-sm', focusLayout && 'overflow-visible')}>
+        {useModernUI && !_touchOptimized && focusLayout ? modernToolbarElement : null}
+        <div
+          className={cn(
+            'flex justify-center',
+            focusLayout &&
+              (_touchOptimized
+                ? 'w-full items-start'
+                : shouldShrinkFocusCanvas
+                  ? 'w-fit max-w-full mx-auto items-start'
+                  : 'min-h-full min-w-full m-auto items-center'),
+          )}
+        >
+          <div
+            className={cn(
+              'inline-block max-w-full rounded-xl border border-border bg-background/90 shadow-sm',
+              focusLayout && 'overflow-visible',
+              shouldFillTouchFocusViewport && 'w-full',
+            )}
+          >
             <div
               className="relative inline-block max-w-full align-top"
               onPointerEnter={() => {
@@ -1314,18 +1368,7 @@ export function ImageEditor({
                 onImageHoverChange?.(false)
               }}
             >
-              {!sourceImageLoaded ? (
-                <div className="absolute inset-0 z-10 flex items-center justify-center rounded-xl bg-background/82 backdrop-blur-[1px]">
-                  <div className="flex w-full max-w-[26rem] flex-col gap-3 px-4">
-                    <Skeleton className="h-5 w-28 rounded-full" />
-                    <Skeleton className="aspect-[4/3] w-full rounded-2xl" />
-                    <div className="flex items-center justify-between gap-3">
-                      <Skeleton className="h-4 w-20 rounded-full" />
-                      <Skeleton className="h-4 w-14 rounded-full" />
-                    </div>
-                  </div>
-                </div>
-              ) : null}
+              {!sourceImageLoaded ? <ImageEditorLoadingOverlay /> : null}
               <img
                 ref={imageRef}
                 src={sourceImageUrl}
@@ -1350,63 +1393,13 @@ export function ImageEditor({
                 }}
               />
 
-              <AnimatePresence initial={false}>
-                {showInlineImageNavigation && (_touchOptimized || imageFrameHovered) ? (
-                  <>
-                    {canGoPrevious ? (
-                      <motion.div
-                        key="inline-nav-prev"
-                        initial={{ opacity: 0, x: -8 }}
-                        animate={{ opacity: 1, x: 0 }}
-                        exit={{ opacity: 0, x: -8 }}
-                        transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
-                        className="absolute left-3 top-1/2 z-30 -translate-y-1/2"
-                      >
-                        <Button
-                          type="button"
-                          variant="secondary"
-                          size="icon"
-                          className="size-10 rounded-full border border-border/70 bg-background/88 shadow-lg backdrop-blur-sm"
-                          onPointerDown={(event) => event.stopPropagation()}
-                          onClick={(event) => {
-                            event.stopPropagation()
-                            onPreviousItem?.()
-                          }}
-                        >
-                          <ChevronLeftIcon className="size-5" />
-                          <span className="sr-only">上一张图片</span>
-                        </Button>
-                      </motion.div>
-                    ) : null}
-
-                    {canGoNext ? (
-                      <motion.div
-                        key="inline-nav-next"
-                        initial={{ opacity: 0, x: 8 }}
-                        animate={{ opacity: 1, x: 0 }}
-                        exit={{ opacity: 0, x: 8 }}
-                        transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
-                        className="absolute right-3 top-1/2 z-30 -translate-y-1/2"
-                      >
-                        <Button
-                          type="button"
-                          variant="secondary"
-                          size="icon"
-                          className="size-10 rounded-full border border-border/70 bg-background/88 shadow-lg backdrop-blur-sm"
-                          onPointerDown={(event) => event.stopPropagation()}
-                          onClick={(event) => {
-                            event.stopPropagation()
-                            onNextItem?.()
-                          }}
-                        >
-                          <ChevronRightIcon className="size-5" />
-                          <span className="sr-only">下一张图片</span>
-                        </Button>
-                      </motion.div>
-                    ) : null}
-                  </>
-                ) : null}
-              </AnimatePresence>
+              <ImageEditorInlineNavigation
+                visible={showInlineImageNavigationWhileHovered}
+                canGoPrevious={canGoPrevious}
+                canGoNext={canGoNext}
+                onPreviousItem={onPreviousItem}
+                onNextItem={onNextItem}
+              />
 
               <div
                 className="absolute inset-0"
@@ -1446,7 +1439,7 @@ export function ImageEditor({
                   className="pointer-events-none absolute rounded-xl border-2 border-dashed border-amber-400/90 bg-amber-300/10"
                   style={toStyle(localCrop, imageWidth, imageHeight)}
                 >
-                    <div className="absolute -top-5 left-0 rounded-sm bg-amber-950/90 px-1.5 py-0.5 text-[10px] leading-none font-medium text-amber-100">
+                    <div className="absolute top-full mt-1 left-0 rounded-sm bg-amber-950/90 px-1.5 py-0.5 text-[10px] leading-none font-medium text-amber-100">
                       裁切框
                     </div>
                   {!readOnly ? (
@@ -1535,7 +1528,7 @@ export function ImageEditor({
                           animate={{ opacity: 1, y: 0 }}
                           exit={{ opacity: 0, y: 4 }}
                           transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
-                          className="pointer-events-auto absolute bottom-full left-1/2 mb-2 -translate-x-1/2"
+                          className="pointer-events-auto absolute bottom-full left-1/2 mb-2 -translate-x-1/2 z-[70]"
                         >
                           <Button
                             type="button"
@@ -1609,29 +1602,21 @@ export function ImageEditor({
           </div>
         </div>
       </div>
+      
+      {useModernUI && _touchOptimized ? (
+        <div className="shrink-0 pt-2 pb-1 relative z-[60]">
+          {modernToolbarElement}
+        </div>
+      ) : null}
+
+
       {footerSlot}
 
-      <AlertDialog open={resetConfirmOpen} onOpenChange={setResetConfirmOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>确认重置当前图片？</AlertDialogTitle>
-            <AlertDialogDescription>
-              这会把当前图片的遮罩和裁切一起恢复到初始状态，已经做过的本图编辑会被清掉。
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>先不重置</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={() => {
-                setResetConfirmOpen(false)
-                void resetEditor()
-              }}
-            >
-              确认重置
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <ImageEditorResetDialog
+        open={resetConfirmOpen}
+        onOpenChange={setResetConfirmOpen}
+        onConfirm={() => void resetEditor()}
+      />
     </div>
   )
 }

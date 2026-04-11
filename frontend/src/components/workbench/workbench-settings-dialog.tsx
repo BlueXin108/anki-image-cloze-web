@@ -427,6 +427,24 @@ export function WorkbenchSettingsDialog({
                       </div>
                     </FieldContent>
                   </Field>
+                  <Field>
+                    <FieldLabel className="text-[13px] font-medium">启用聚焦悬浮控制岛</FieldLabel>
+                    <FieldContent>
+                      <div className="flex justify-between items-center gap-3 rounded-2xl border border-border/60 bg-background/75 p-3">
+                        <div className="min-w-0 text-[12px] text-muted-foreground">
+                          在“聚焦编辑”模式下采用现代化的悬浮玻璃条替代传统的顶部按钮栏，留出更多画板空间。
+                        </div>
+                        <div className="flex shrink-0 items-center justify-end gap-2 text-right">
+                          <Switch
+                            checked={settings.modernFloatingToolbar}
+                            onCheckedChange={(checked) => onSettingsChange({ ...settings, modernFloatingToolbar: checked })}
+                            aria-label="启用聚焦悬浮控制岛"
+                            className="trs-all-400 mr-1 scale-125 data-[state=checked]:bg-foreground"
+                          />
+                        </div>
+                      </div>
+                    </FieldContent>
+                  </Field>
                 </FieldGroup>
               </CardContent>
             </Card>

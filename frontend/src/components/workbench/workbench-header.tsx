@@ -89,7 +89,6 @@ interface WorkbenchHeaderProps {
 	showModeTabs?: boolean;
 	projectCompressionState?: "original" | "compressed" | "mixed" | "none";
 	projectCompressionCount?: number;
-	introMode?: boolean;
 }
 
 // --- 图标组件 ---
@@ -115,8 +114,9 @@ const AnkiIcon = memo(({className}: {className?: string}) => (
 const MainIcon = memo(() => (
 	<motion.div 
 		layoutId="header-icon"
+		initial={false}
 		transition={sharedLayoutTransition}
-		className="flex size-11 shrink-0 items-center justify-center rounded-2xl border border-border/70 bg-muted/35 text-foreground"
+		className="relative z-50 flex size-11 shrink-0 items-center justify-center rounded-2xl border border-border/70 bg-muted/35 text-foreground"
 	>
 		<AnkiIcon className="size-6 text-foreground/80" />
 	</motion.div>
@@ -233,7 +233,6 @@ export const WorkbenchHeader = memo(function WorkbenchHeader({
 	showModeTabs = true,
 	projectCompressionState = "none",
 	projectCompressionCount = 0,
-	introMode = false,
 }: WorkbenchHeaderProps) {
 	const [guideOpen, setGuideOpen] = useState(false);
 	const [ankiHelpRequested, setAnkiHelpRequested] = useState(false);
@@ -262,13 +261,13 @@ export const WorkbenchHeader = memo(function WorkbenchHeader({
 		<>
 			手机端先导入图片，再进聚焦编辑画遮罩，最后生成
 			<span className="mx-1 inline-flex">
-				<InlineEmphasis hint={apkgHint} touchOptimized={touchOptimized}>
+				<InlineEmphasis className="bg-foreground/60 outline-0 border-0" hint={apkgHint} touchOptimized={touchOptimized}>
 					APKG
 				</InlineEmphasis>
 			</span>
 			或
 			<span className="mx-1 inline-flex">
-				<InlineEmphasis hint={imageGroupHint} touchOptimized={touchOptimized}>
+				<InlineEmphasis className="bg-foreground/60 outline-0 border-0" hint={imageGroupHint} touchOptimized={touchOptimized}>
 					图像组
 				</InlineEmphasis>
 			</span>
@@ -278,17 +277,17 @@ export const WorkbenchHeader = memo(function WorkbenchHeader({
 		<>
 			导入图片、绘制遮罩、检查预览，再通过
 			<span className="mx-1 inline-flex">
-				<InlineEmphasis onClick={onOpenAnkiHelp}>AnkiConnect</InlineEmphasis>
+				<InlineEmphasis className="bg-foreground/60 outline-0 border-0" onClick={onOpenAnkiHelp}>AnkiConnect</InlineEmphasis>
 			</span>
 			把卡片送进本机 Anki，或导出为
 			<span className="mx-1 inline-flex">
-				<InlineEmphasis hint={apkgHint} touchOptimized={touchOptimized}>
+				<InlineEmphasis className="bg-foreground/60 outline-0 border-0" hint={apkgHint} touchOptimized={touchOptimized}>
 					APKG
 				</InlineEmphasis>
 			</span>
 			/
 			<span className="mx-1 inline-flex">
-				<InlineEmphasis hint={imageGroupHint} touchOptimized={touchOptimized}>
+				<InlineEmphasis className="bg-foreground/60 outline-0 border-0" hint={imageGroupHint} touchOptimized={touchOptimized}>
 					图像组
 				</InlineEmphasis>
 			</span>
@@ -319,34 +318,30 @@ export const WorkbenchHeader = memo(function WorkbenchHeader({
 				: projectCompressionState === "mixed" && projectCompressionCount > 0
 					? `${projectCompressionCount} 次`
 					: "";
-	const introContentMotionProps = introMode
-		? {
-				initial: { opacity: 0, y: 12 },
-				animate: {
-					opacity: 1,
-					y: 0,
-					transition: {
-						duration: 1.2,
-						ease: introEase,
-						delay: 0.42,
-					},
-				},
-			}
-		: undefined;
-	const introSideMotionProps = introMode
-		? {
-				initial: { opacity: 0, y: 16 },
-				animate: {
-					opacity: 1,
-					y: 0,
-					transition: {
-						duration: 1.2,
-						ease: introEase,
-						delay: 0.56,
-					},
-				},
-			}
-		: undefined;
+	const introContentMotionProps = {
+		initial: { opacity: 0, y: 12 },
+		animate: {
+			opacity: 1,
+			y: 0,
+			transition: {
+				duration: 1.2,
+				ease: introEase,
+				delay: 0.8,
+			},
+		},
+	};
+	const introSideMotionProps = {
+		initial: { opacity: 0, y: 16 },
+		animate: {
+			opacity: 1,
+			y: 0,
+			transition: {
+				duration: 1.2,
+				ease: introEase,
+				delay: 0.85,
+			},
+		},
+	};
 
 	return (
 		<Card data-telemetry-section="header" className="overflow-visible border-none bg-white/60 outline-0 ring-0 rounded-md">
@@ -362,12 +357,13 @@ export const WorkbenchHeader = memo(function WorkbenchHeader({
 							<div className="flex flex-wrap items-center gap-2">
 								<motion.h3 
 									layoutId="header-title"
+									initial={false}
 									transition={sharedLayoutTransition}
-									className="text-lg font-semibold tracking-tight md:text-lg text-foreground"
+									className="relative z-50 text-lg font-semibold tracking-tight md:text-lg text-foreground mr-2"
 								>
 									Anki-图像遮罩工具
 								</motion.h3>
-								<motion.div className="flex flex-wrap items-center gap-2" {...introContentMotionProps}>
+								<motion.div className="flex flex-wrap items-center gap-2 " {...introContentMotionProps}>
 									<Tooltip>
 										<TooltipTrigger asChild>
 											<button type="button" className="cursor-help text-muted-foreground trs-all-400 hover:text-foreground">
@@ -546,7 +542,7 @@ export const WorkbenchHeader = memo(function WorkbenchHeader({
 							<div className="flex flex-col gap-2">
 								<Button
 									size="default"
-									className="trs-all-400 h-10 min-w-0 rounded-xl px-3 sm:px-4 border border-transparent hover:-translate-y-0.5 active:scale-[0.98] hover:bg-background hover:text-primary hover:border-border"
+									className="trs-all-400 h-10 min-w-0 rounded-xl px-3 sm:px-4 border border-transparent outline-0 hover:-translate-y-0.5 active:scale-[0.98] hover:bg-foreground/80 hover:text-secondary hover:border-border shadow-none"
 									onClick={onUploadImages}>
 									<UploadIcon className="size-4" data-icon="inline-start" />
 									系统相册

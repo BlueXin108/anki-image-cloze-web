@@ -216,7 +216,7 @@ export const StatusCapsule = memo(function StatusCapsule({
   return (
     <TooltipProvider delayDuration={120}>
       <div
-        className={cn('pointer-events-none fixed bottom-4 z-50 flex max-w-[calc(100vw-2rem)] flex-col gap-3', sideClass)}
+        className={cn('pointer-events-none fixed bottom-2 z-50 flex max-w-[calc(100vw-2rem)] flex-col gap-3', sideClass)}
         onPointerEnter={() => setIsHovered(true)}
         onPointerLeave={() => setIsHovered(false)}
       >
@@ -286,7 +286,7 @@ export const StatusCapsule = memo(function StatusCapsule({
         )}
 
         {/* 底部真正的“胶囊栏” - 移除Card，使用原生div，圆角调整为 rounded-full */}
-        <div className="pointer-events-auto flex items-center gap-1.5 rounded-full border border-border/50 bg-background/70 px-1.5 py-1 shadow-lg shadow-black/5 backdrop-blur-md trs-all-400 hover:bg-background/90 hover:shadow-xl group">
+        <div className="pointer-events-auto flex items-center gap-1.5 rounded-full border border-border/50 bg-background/70 px-1.5 py-1.5 shadow-lg shadow-black/5 backdrop-blur-md trs-all-400 hover:bg-background/90 hover:shadow-xl group">
           
           {/* 图标叠加区：使用 -space-x-1.5 制造头像组重叠的紧凑视觉，并修复嵌套 button 语意问题 */}
           <div 
@@ -296,7 +296,7 @@ export const StatusCapsule = memo(function StatusCapsule({
               setSpotlightTaskId(null)
               setOpen((current) => !current)
             }}
-            className="flex items-center space-x-1 pl-0.5 cursor-pointer"
+            className="flex items-center space-x-1 pl-1.5 cursor-pointer"
             aria-label={open ? '收起状态面板' : '展开状态面板'}
           >
             {tasks.map((task, index) => (
@@ -304,7 +304,7 @@ export const StatusCapsule = memo(function StatusCapsule({
                 <TooltipTrigger asChild>
                   <span
                     className={cn(
-                      'relative flex size-5.5 items-center justify-center rounded-full border border-background transition-transform hover:z-10 hover:scale-[1.01] cursor-default',
+                      'relative flex size-6 items-center justify-center rounded-full border border-background transition-transform hover:z-10 hover:scale-[1.01] cursor-default',
                       capsuleToneClass(task),
                       task.state === 'idle' && 'border-dashed',
                       /* 确保第一个元素不被后面的盖住，保持视觉层级 */

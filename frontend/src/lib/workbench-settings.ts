@@ -11,6 +11,7 @@ export const DEFAULT_WORKBENCH_SETTINGS: WorkbenchSettings = {
   imageGroupExportQuality: 50,
   cardGenerationMode: 'hide-all-reveal-current',
   disableAnimations: false,
+  modernFloatingToolbar: true,
 }
 
 export function normalizeWorkbenchSettings(
@@ -25,6 +26,7 @@ export function normalizeWorkbenchSettings(
     imageGroupExportQuality: clampInt(value?.imageGroupExportQuality, 1, 100, DEFAULT_WORKBENCH_SETTINGS.imageGroupExportQuality),
     cardGenerationMode: normalizeCardGenerationMode(value?.cardGenerationMode),
     disableAnimations: Boolean(value?.disableAnimations ?? DEFAULT_WORKBENCH_SETTINGS.disableAnimations),
+    modernFloatingToolbar: Boolean(value?.modernFloatingToolbar ?? DEFAULT_WORKBENCH_SETTINGS.modernFloatingToolbar),
   }
 }
 

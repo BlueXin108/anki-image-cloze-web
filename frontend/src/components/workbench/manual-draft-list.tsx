@@ -107,20 +107,20 @@ export const ManualDraftList = memo(function ManualDraftList({ items, selectedDr
     return (
       <>
       <Card data-telemetry-section="image-list" className="flex min-h-0 max-h-[18.5rem] overflow-hidden flex-col border-border/70 bg-background/90 shadow-none">
-        <CardHeader className="gap-2 border-b border-border/70 px-4 py-3">
+        <CardHeader className={cn("py-0 px-4.5",!mobileLayout&&"gap-2 border-b border-border/70 px-4 py-3")}>
           <CardTitle className="flex items-center justify-between text-base">
-            <span>图片选择</span>
-            <Badge variant="secondary" className="px-2 py-0 text-[10px]">
+            <span className=''>图片选择</span>
+            <Badge variant="secondary" className="px-2 py-0 text-[10px] bg-transparent">
               {activeItems.length} 张
             </Badge>
           </CardTitle>
           <CardDescription className="text-xs">
-            点一张图，就会在下方切到对应的编辑内容。
+            点击图片可切换编辑对象
           </CardDescription>
         </CardHeader>
 
         <CardContent
-          className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-2.5 py-2.5"
+          className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-2.5 py-1.5"
           style={EDGE_FADE_MASK_STYLE}
         >
           <div className="flex flex-col gap-2">
@@ -211,10 +211,10 @@ export const ManualDraftList = memo(function ManualDraftList({ items, selectedDr
                         variant="ghost"
                         size="icon"
                         className={cn(
-                          'absolute left-1 top-1 z-20 h-5 w-5 rounded-full border shadow-sm backdrop-blur-sm trs-all-400',
+                          'absolute left-1 top-1 z-20 h-5 w-5 rounded-full border shadow-sm backdrop-blur-sm trs-all-400 border-none',
                           hasMasks
-                            ? 'border-white/25 bg-black/50 text-white hover:bg-black/70'
-                            : 'border-black/10 bg-white/88 text-black hover:bg-white',
+                            ? 'border-white/0 bg-black/50 text-white hover:bg-black/70'
+                            : 'border-black/0 bg-white/75 text-black hover:bg-white',
                         )}
                         onClick={(e) => {
                           e.stopPropagation()
@@ -253,20 +253,20 @@ export const ManualDraftList = memo(function ManualDraftList({ items, selectedDr
       <>
       <Card data-telemetry-section="image-list" className="flex h-full min-h-0 overflow-hidden flex-col border-0! ring-0 outline-0 border-none! bg-transparent shadow-none">
       <CardHeader className="gap-2 border-b border-border/70 px-5 py-2">
-        <CardTitle className="flex items-center justify-between text-base">
+        <CardTitle className="flex items-center justify-between text-[14px]">
           <span>图片选择</span>
           <Badge variant="secondary" className="text-[10px] px-2 py-0 bg-transparent">
             {activeItems.length} 张
           </Badge>
         </CardTitle>
         <CardDescription className="text-xs line-clamp-2">
-          这里会列出当前项目里的所有图片；点一张，就会在右侧切到对应的编辑和预览内容。
+          点击图片可切换编辑对象
         </CardDescription>
       </CardHeader>
       
-      <CardContent className="min-h-0 h-0 flex-1 overflow-hidden px-3 py-3">
+      <CardContent className="min-h-0 h-0 flex-1 overflow-hidden px-3 py-0">
         <ScrollArea className="h-full pr-3" style={EDGE_FADE_MASK_STYLE}> {/* pr-3 给滚动条留出足够的呼吸空间 */}
-          <div className="flex flex-col gap-2"> {/* gap-3 缩小为 gap-2 */}
+          <div className="flex flex-col gap-2 mt-1"> {/* gap-3 缩小为 gap-2 */}
             <AnimatePresence initial={false} mode="popLayout">
             {activeItems.map((item) => {
               const isSelected = item.draft.id === selectedDraftId
@@ -287,7 +287,7 @@ export const ManualDraftList = memo(function ManualDraftList({ items, selectedDr
                   role={isPreparing ? undefined : 'button'}
                   tabIndex={isPreparing ? -1 : 0}
                   className={cn(
-                    'group relative h-auto w-full justify-start rounded-xl border px-2.5 py-2.5 text-left trs-all-400',
+                    'group relative h-auto w-full justify-start rounded-xl border px-2.5 py-2 text-left trs-all-400 max-w-[300px]',
                     isSelected 
                       ? 'border-transparent ring-0' 
                       : isPreparing
@@ -341,7 +341,7 @@ export const ManualDraftList = memo(function ManualDraftList({ items, selectedDr
                       <div className="max-w-full truncate text-sm font-medium leading-tight text-foreground/90" title={item.image.source_path}>
                         {truncateFileName(item.image.source_path, 38)}
                       </div>
-                      <div className="mt-1 text-[11px] leading-4 text-muted-foreground/80 line-clamp-2">
+                      <div className="mt-1 text-[11px] leading-4 text-black/40 text-shadow line-clamp-2 px-2 rounded-sm bg-foreground/5 w-fit">
                         {isPreparing
                           ? 'HEIF 正在转换，通常会更久一些'
                           : item.draft.deck?.trim() || '未分牌组'}
@@ -353,7 +353,7 @@ export const ManualDraftList = memo(function ManualDraftList({ items, selectedDr
                         variant="ghost"
                         size="icon"
                         className={cn(
-                          'absolute left-1 top-1 z-20 h-5 w-5 shrink-0 rounded-full border shadow-sm backdrop-blur-sm transition',
+                          'absolute left-0 top-0 z-20 h-5 w-5 shrink-0 rounded-full border shadow-sm backdrop-blur-sm transition',
                           hasMasks
                             ? 'border-white/25 bg-black/50 text-white hover:bg-black/70'
                             : 'border-black/10 bg-white/88 text-black hover:bg-white',

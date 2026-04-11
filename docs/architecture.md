@@ -38,7 +38,7 @@
 
 - `frontend/src/App.tsx`
   - 只保留顶层装配职责
-  - 负责把头部、工作区、状态胶囊、导出视窗拼起来
+  - 负责把首页、头部、工作区、状态胶囊、导出视窗拼起来
 - `frontend/src/components/workbench/`
   - 手动工作区、牌组浏览器、状态胶囊、导出流程视窗、顶部工作台外壳
   - `anki-connect-help-popover.tsx` 负责右上帮助说明
@@ -81,6 +81,9 @@
   - 统一管理右上角消息提示的层级与关闭样式
 - `frontend/src/lib/pwa.ts`
   - 负责注册 Service Worker，并在新版本可用时提示刷新
+- `frontend/src/components/landing/`
+  - 负责首页内容与背景层
+  - 当前首页与工作台之间采用分阶段切换，而不是整页硬切
 - `frontend/public/manifest.webmanifest`
   - 提供安装到桌面或主屏所需的应用清单
 - `frontend/vite.config.ts`
@@ -140,6 +143,7 @@
 - 导出页里的压缩质量与图片格式，要继续和最终生成逻辑保持一致
 - `AnkiConnect`、`APKG`、纯图像组三条导出路径现在共用同一套图片格式开放规则
 - 制卡模式也必须继续在预览、Anki、APKG、纯图像组三条线上保持一致
+- 若用户关闭动画，首页背景粒子必须彻底卸载，而不是只停住视觉效果继续留在页面里
 
 详细规则见：
 
