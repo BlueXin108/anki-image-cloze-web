@@ -26,6 +26,7 @@ import type {
 	CardGenerationMode,
 	DraftListItem,
 	ImageExportFormat,
+	WorkbenchSettings,
 } from "@/types";
 import {DeckPicker} from "@/components/workbench/deck-picker";
 import {FocusEditorDialog} from "@/components/workbench/focus-editor-dialog";
@@ -120,6 +121,8 @@ interface ExportFlowDialogProps {
 	lastExportDestination?: "anki" | "apkg" | "image-group";
 	onKeepExportedItems?: () => void;
 	onClearExportedItems?: () => void;
+	workbenchSettings: WorkbenchSettings;
+	onWorkbenchSettingsChange: (settings: WorkbenchSettings) => void;
 }
 
 function imageLabel(item: DraftListItem): string {
@@ -450,7 +453,7 @@ function ExportQualityPreview({
 				"flex w-full items-center justify-center rounded-xl",
 				compact ? "h-[88px]" : "h-[120px]",
 			)}>
-			<Spinner className="size-5 text-muted-foreground/30" />
+			<Spinner className="size-8 text-muted-foreground/30" />
 		</div>
 	);
 }
@@ -633,6 +636,8 @@ function ExportPreviewPane({
 	compact = false,
 	generationMode = "hide-all-reveal-current",
 	onFocusModeChange,
+	workbenchSettings,
+	onWorkbenchSettingsChange,
 }: {
 	item: DraftListItem | null;
 	onMasksCommit: (masks: DraftListItem["draft"]["masks"]) => Promise<void>;
@@ -645,6 +650,8 @@ function ExportPreviewPane({
 	compact?: boolean;
 	generationMode?: CardGenerationMode;
 	onFocusModeChange?: (open: boolean) => void;
+	workbenchSettings: WorkbenchSettings;
+	onWorkbenchSettingsChange: (settings: WorkbenchSettings) => void;
 }) {
 	const [focusOpen, setFocusOpen] = useState(false);
 	const focusStateReadyRef = useRef(false);
@@ -723,6 +730,8 @@ function ExportPreviewPane({
 					contentClassName="!z-[131]"
 					title="聚焦编辑"
 					description="会打开独立编辑层，方便你更精细地调整裁剪和遮罩。"
+					workbenchSettings={workbenchSettings}
+					onWorkbenchSettingsChange={onWorkbenchSettingsChange}
 				/>
 			</>
 		);
@@ -808,6 +817,8 @@ function ExportPreviewPane({
 				contentClassName="!z-[131]"
 				title="聚焦编辑"
 				description="会打开独立编辑层，方便你更精细地调整裁剪和遮罩。"
+				workbenchSettings={workbenchSettings}
+				onWorkbenchSettingsChange={onWorkbenchSettingsChange}
 			/>
 		</>
 	);
@@ -866,6 +877,8 @@ export function ExportFlowDialog({
 	lastExportDestination = "apkg",
 	onKeepExportedItems,
 	onClearExportedItems,
+	workbenchSettings,
+	onWorkbenchSettingsChange,
 }: ExportFlowDialogProps) {
 	const currentItem = queue[currentIndex] ?? null;
 	const reviewedCount = reviewedDraftIds.length;
@@ -1178,6 +1191,8 @@ export function ExportFlowDialog({
 																	compact={isMobileDialog}
 																	generationMode={generationMode}
 																	onFocusModeChange={onFocusModeChange}
+																	workbenchSettings={workbenchSettings}
+																	onWorkbenchSettingsChange={onWorkbenchSettingsChange}
 																/>
 															)}
 

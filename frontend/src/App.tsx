@@ -87,6 +87,8 @@ const AUTO_OPTIMIZE_MAX_DIMENSION = DEFAULT_WORKBENCH_SETTINGS.importMaxDimensio
 const AUTO_OPTIMIZE_QUALITY = DEFAULT_WORKBENCH_SETTINGS.importImageQuality / 100
 const WORKBENCH_MAIN_DELAY_MS = 600
 const WORKBENCH_INTRO_END_MS = 2200
+const LANDING_BACKGROUND_UNMOUNT_DELAY_MS = 2000
+const IMPORT_TRIGGER_SPINNER_RESET_MS = 180
 const WORKBENCH_EASE_OUT = [0, 0.43, 0, 0.99] as const
 const WORKBENCH_EASE_INOUT = [0.54, 0, 0, 0.99] as const
 
@@ -198,7 +200,10 @@ export default function App() {
   const [workbenchIntroActive, setWorkbenchIntroActive] = useState(false)
   const [workbenchMainReady, setWorkbenchMainReady] = useState(true)
   const [landingIntroReady, setLandingIntroReady] = useState(false)
+  const [shouldRenderLandingBackground, setShouldRenderLandingBackground] = useState(() => !loadWorkbenchSettings().disableAnimations)
+  const [pendingImportTrigger, setPendingImportTrigger] = useState<'upload' | 'folder' | 'file-manager' | 'camera' | null>(null)
   const previousShowLandingRef = useRef(true)
+  const importTriggerResetTimerRef = useRef<number | null>(null)
 
   const selectedItem = useMemo(
     () => draftItems.find((item) => item.draft.id === selectedDraftId) ?? draftItems[0] ?? null,
@@ -275,6 +280,39 @@ export default function App() {
   }, [showLanding])
 
   useEffect(() => {
+    if (workbenchSettings.disableAnimations) {
+      setShouldRenderLandingBackground(false)
+      if (import.meta.env.DEV) {
+        console.info('[landing-bg] disabled by settings, unmounted immediately')
+      }
+      return
+    }
+
+    if (showLanding) {
+      setShouldRenderLandingBackground(true)
+      if (import.meta.env.DEV) {
+        console.info('[landing-bg] mounted for landing')
+      }
+      return
+    }
+
+    if (import.meta.env.DEV) {
+      console.info(`[landing-bg] scheduled unmount in ${LANDING_BACKGROUND_UNMOUNT_DELAY_MS}ms`)
+    }
+
+    const timer = window.setTimeout(() => {
+      setShouldRenderLandingBackground(false)
+      if (import.meta.env.DEV) {
+        console.info('[landing-bg] unmounted after landing handoff')
+      }
+    }, LANDING_BACKGROUND_UNMOUNT_DELAY_MS)
+
+    return () => {
+      window.clearTimeout(timer)
+    }
+  }, [showLanding, workbenchSettings.disableAnimations])
+
+  useEffect(() => {
     if (exportModulesPrefetchedRef.current) return
     if (activeDraftItems.length === 0) return
 
@@ -287,6 +325,14 @@ export default function App() {
     const idleWindow = window.setTimeout(warmModules, 1200)
     return () => window.clearTimeout(idleWindow)
   }, [activeDraftItems.length])
+
+  const triggerImportPicker = useCallback(
+    (kind: 'upload' | 'folder' | 'file-manager' | 'camera', action: () => void) => {
+      setPendingImportTrigger(kind)
+      action()
+    },
+    [],
+  )
 
   const deckOptions = useMemo(() => {
     const localDecks = draftItems
@@ -422,6 +468,34 @@ export default function App() {
     slowSaveStrikeRef,
     pendingImageEditSaveMetricRef,
   })
+
+  useEffect(() => {
+    if (!isImportingFiles) return
+    setPendingImportTrigger(null)
+  }, [isImportingFiles])
+
+  useEffect(() => {
+    if (!pendingImportTrigger || typeof window === 'undefined') return
+
+    const scheduleClearPending = () => {
+      if (!isImportingFiles) {
+        importTriggerResetTimerRef.current = window.setTimeout(() => {
+          setPendingImportTrigger((current) => (current ? null : current))
+          importTriggerResetTimerRef.current = null
+        }, IMPORT_TRIGGER_SPINNER_RESET_MS)
+      }
+    }
+
+    window.addEventListener('focus', scheduleClearPending, { once: true })
+
+    return () => {
+      window.removeEventListener('focus', scheduleClearPending)
+      if (importTriggerResetTimerRef.current !== null) {
+        window.clearTimeout(importTriggerResetTimerRef.current)
+        importTriggerResetTimerRef.current = null
+      }
+    }
+  }, [pendingImportTrigger, isImportingFiles])
 
   const showWorkspaceLoadingShell = !storageReady
   const showWorkspaceProcessingOverlay = isImportingFiles || loadingKey === 'restore-project'
@@ -969,7 +1043,7 @@ export default function App() {
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
       >
-        {!workbenchSettings.disableAnimations ? (
+        {!workbenchSettings.disableAnimations && shouldRenderLandingBackground ? (
           <LandingBackground introReady={landingIntroReady} workbenchShifted={!showLanding} />
         ) : null}
         <AnimatePresence mode="popLayout">
@@ -986,8 +1060,8 @@ export default function App() {
                 recoverableSummary={recoverableProjectSummary}
                 introReady={landingIntroReady}
                 mobileOptimized={deviceProfile.isMobileDevice}
-                onCapturePhoto={deviceProfile.canReliableCameraCapture ? () => cameraInputRef.current?.click() : undefined}
-                onImportFiles={() => fileManagerInputRef.current?.click()}
+                onCapturePhoto={deviceProfile.canReliableCameraCapture ? () => triggerImportPicker('camera', () => cameraInputRef.current?.click()) : undefined}
+                onImportFiles={() => triggerImportPicker('file-manager', () => fileManagerInputRef.current?.click())}
               />
             </motion.div>
           ) : (
@@ -1012,10 +1086,10 @@ export default function App() {
                     onWorkspaceModeChange={setWorkspaceMode}
                     manualGuide={manualGuide}
                     loadingKey={loadingKey}
-                    onUploadImages={() => fileInputRef.current?.click()}
-                    onCapturePhoto={deviceProfile.canReliableCameraCapture ? () => cameraInputRef.current?.click() : undefined}
-                    onImportFiles={() => fileManagerInputRef.current?.click()}
-                    onImportFolder={() => folderInputRef.current?.click()}
+                    onUploadImages={() => triggerImportPicker('upload', () => fileInputRef.current?.click())}
+                    onCapturePhoto={deviceProfile.canReliableCameraCapture ? () => triggerImportPicker('camera', () => cameraInputRef.current?.click()) : undefined}
+                    onImportFiles={() => triggerImportPicker('file-manager', () => fileManagerInputRef.current?.click())}
+                    onImportFolder={() => triggerImportPicker('folder', () => folderInputRef.current?.click())}
                     onRestoreProject={() => void run('restore-project', restoreSavedProject)}
                     onRefreshAnki={() => void run('refresh-anki', () => refreshAnkiConnection({ source: 'manual' }))}
                     onOptimizeProject={() => void run('optimize-project', optimizeCurrentProjectForSpeed)}
@@ -1029,6 +1103,10 @@ export default function App() {
                     onAnkiHelpOpenChange={setAnkiHelpOpen}
                     onOpenAnkiHelp={() => setAnkiHelpOpen(true)}
                     touchOptimized={deviceProfile.isTouchLike}
+                    uploadTriggerPending={pendingImportTrigger === 'upload'}
+                    folderTriggerPending={pendingImportTrigger === 'folder'}
+                    fileManagerTriggerPending={pendingImportTrigger === 'file-manager'}
+                    cameraTriggerPending={pendingImportTrigger === 'camera'}
                     settingsAction={(
                       <Button
                         size="icon-sm"
@@ -1107,6 +1185,8 @@ export default function App() {
                             onEditorHoverChange={setEditorHoverActive}
                             readOnlyInWorkspace={deviceProfile.isMobileDevice}
                             touchOptimized={deviceProfile.isTouchLike}
+                            workbenchSettings={workbenchSettings}
+                            onWorkbenchSettingsChange={(next) => setWorkbenchSettings(normalizeWorkbenchSettings(next))}
                             onPreviousItem={selectPreviousDraft}
                             onNextItem={selectNextDraft}
                             canGoPrevious={selectedDraftIndex > 0}
@@ -1139,6 +1219,8 @@ export default function App() {
                               generationMode={workbenchSettings.cardGenerationMode}
                               focusShortcutEnabled={!exportDialogOpen}
                               onEditorHoverChange={setEditorHoverActive}
+                              workbenchSettings={workbenchSettings}
+                              onWorkbenchSettingsChange={(next) => setWorkbenchSettings(normalizeWorkbenchSettings(next))}
                               onPreviousItem={selectPreviousDraft}
                               onNextItem={selectNextDraft}
                               canGoPrevious={selectedDraftIndex > 0}
@@ -1362,6 +1444,8 @@ export default function App() {
             touchOptimized={deviceProfile.isTouchLike}
             onOpenAnkiHelp={() => setAnkiHelpOpen(true)}
             generationMode={workbenchSettings.cardGenerationMode}
+            workbenchSettings={workbenchSettings}
+            onWorkbenchSettingsChange={(next) => setWorkbenchSettings(normalizeWorkbenchSettings(next))}
             exportedDraftIds={exportCleanupDraftIds}
             lastExportDestination={lastExportDestination}
             onKeepExportedItems={dismissExportSuccess}

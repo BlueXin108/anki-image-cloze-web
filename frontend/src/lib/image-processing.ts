@@ -15,6 +15,10 @@ interface TransformedImageResult {
   height: number
 }
 
+type CanvasImageSourceResult =
+  | { source: HTMLImageElement; width: number; height: number; cleanup?: () => void }
+  | { source: ImageBitmap; width: number; height: number; cleanup: () => void }
+
 export interface PreparedImportImage {
   blob: Blob
   mediaType: string
@@ -105,18 +109,13 @@ export async function transformImageBlob(
   blob: Blob,
   options: TransformImageOptions,
 ): Promise<TransformedImageResult> {
-  const imageUrl = URL.createObjectURL(blob)
+  let loadedSource: CanvasImageSourceResult | null = null
 
   try {
     options.onProgress?.({ stage: 'decode', progress: 10, label: '正在读取原图' })
-    const image = await new Promise<HTMLImageElement>((resolve, reject) => {
-      const next = new Image()
-      next.onload = () => resolve(next)
-      next.onerror = () => reject(new Error('图片预处理失败，无法读取原图。'))
-      next.src = imageUrl
-    })
+    loadedSource = await loadCanvasImageSource(blob)
 
-    const { width, height } = fitWithin(image.naturalWidth, image.naturalHeight, options.maxDimension)
+    const { width, height } = fitWithin(loadedSource.width, loadedSource.height, options.maxDimension)
     const canvas = document.createElement('canvas')
     canvas.width = width
     canvas.height = height
@@ -132,7 +131,7 @@ export async function transformImageBlob(
       context.fillStyle = '#ffffff'
       context.fillRect(0, 0, width, height)
     }
-    context.drawImage(image, 0, 0, width, height)
+    context.drawImage(loadedSource.source, 0, 0, width, height)
 
     options.onProgress?.({ stage: 'encode', progress: 85, label: '正在生成压缩结果' })
     const normalizedBlob = await new Promise<Blob>((resolve, reject) => {
@@ -155,7 +154,45 @@ export async function transformImageBlob(
       height,
     }
   } finally {
+    loadedSource?.cleanup?.()
+  }
+}
+
+async function loadCanvasImageSource(blob: Blob): Promise<CanvasImageSourceResult> {
+  if (typeof createImageBitmap === 'function') {
+    try {
+      const bitmap = await createImageBitmap(blob)
+      return {
+        source: bitmap,
+        width: bitmap.width,
+        height: bitmap.height,
+        cleanup: () => bitmap.close(),
+      }
+    } catch {
+      // Fallback to <img> below when bitmap decoding fails in this browser.
+    }
+  }
+
+  const imageUrl = URL.createObjectURL(blob)
+
+  try {
+    const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const next = new Image()
+      next.decoding = 'async'
+      next.onload = () => resolve(next)
+      next.onerror = () => reject(new Error('图片预处理失败，无法读取原图。'))
+      next.src = imageUrl
+    })
+
+    return {
+      source: image,
+      width: image.naturalWidth,
+      height: image.naturalHeight,
+      cleanup: () => URL.revokeObjectURL(imageUrl),
+    }
+  } catch (error) {
     URL.revokeObjectURL(imageUrl)
+    throw error
   }
 }
 

@@ -1,10 +1,15 @@
 import { useEffect, useState } from 'react'
 import {
+  BlocksIcon,
   ImageDownIcon,
   MaximizeIcon,
+  MinimizeIcon,
+  MousePointer2Icon,
+  PanelTopIcon,
   Settings2Icon,
   SlidersHorizontalIcon,
   TriangleAlertIcon,
+  ZapIcon,
 } from 'lucide-react'
 
 import ankiHelpImage from '@/assets/ankiHelp-1.webp'
@@ -13,7 +18,7 @@ import type { WorkbenchSettings } from '@/types'
 
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import { Field, FieldContent, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Separator } from '@/components/ui/separator'
 import { Switch } from '@/components/ui/switch'
@@ -43,6 +48,8 @@ function SettingSlider({
   helper,
   disabled = false,
   presets = [],
+  className,
+  wrapperClassName,
 }: {
   icon: typeof SlidersHorizontalIcon
   label: string
@@ -54,15 +61,17 @@ function SettingSlider({
   helper?: string
   disabled?: boolean
   presets?: { label: string; value: number }[]
+  className?: string
+  wrapperClassName?: string
 }) {
   return (
-    <Field>
-      <FieldLabel className={cn('flex items-center gap-2 text-[13px] font-medium', disabled && 'opacity-55')}>
+    <Field className={className}>
+      <FieldLabel className={cn('mb-1 flex items-center gap-2 text-sm font-medium text-foreground', disabled && 'opacity-55')}>
         <Icon className="size-4 text-muted-foreground" />
         {label}
       </FieldLabel>
       <FieldContent>
-        <div className={cn('flex flex-col gap-2 rounded-2xl border border-border/60 bg-background/75 p-3', disabled && 'opacity-55')}>
+        <div className={cn('flex flex-col gap-2.5 rounded-xl border border-border/50 bg-background/40 p-3.5 shadow-sm', wrapperClassName, disabled && 'opacity-55')}>
           <div className="flex items-center gap-3">
             <input
               type="range"
@@ -71,9 +80,9 @@ function SettingSlider({
               value={value}
               disabled={disabled}
               onChange={(event) => onChange(Number(event.target.value))}
-              className="trs-all-400 h-2 flex-1 min-w-0 appearance-none rounded-full bg-muted accent-foreground hover:[&::-webkit-slider-thumb]:scale-125 [&::-webkit-slider-thumb]:size-4 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-foreground"
+              className="trs-all-400 h-1.5 min-w-0 flex-1 appearance-none rounded-full bg-muted accent-foreground hover:[&::-webkit-slider-thumb]:scale-105 [&::-webkit-slider-thumb]:size-4 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-foreground"
             />
-            <div className="relative flex w-16 items-center">
+            <div className="relative flex w-20 items-center">
               <input
                 type="number"
                 min={min}
@@ -84,27 +93,27 @@ function SettingSlider({
                   const val = parseInt(event.target.value, 10)
                   if (!isNaN(val)) onChange(val)
                 }}
-                className="w-full rounded-md border border-border/60 bg-muted/30 px-2 py-0.5 text-right text-[12px] font-medium tabular-nums focus:border-foreground/40 focus:outline-none"
+                className="w-full rounded-md border border-border/50 bg-muted/40 px-2 py-1 text-right text-sm font-medium tabular-nums focus:border-foreground/40 focus:outline-none"
               />
-              {suffix ? <span className="pointer-events-none absolute right-7 text-[11px] text-muted-foreground opacity-50">{suffix}</span> : null}
+              {suffix ? <span className="pointer-events-none absolute right-2 text-xs text-muted-foreground opacity-50">{suffix}</span> : null}
             </div>
           </div>
           {presets.length > 0 ? (
-            <div className="flex flex-wrap items-center gap-1.5 mt-0.5">
+            <div className="mt-0.5 flex flex-wrap items-center gap-1.5">
               {presets.map((preset) => (
                 <button
                   key={preset.value}
                   type="button"
                   disabled={disabled}
                   onClick={() => onChange(preset.value)}
-                  className="trs-all-400 rounded-md border border-border/60 bg-muted/40 px-2.5 py-0.5 text-[11.5px] text-muted-foreground hover:bg-muted/70 hover:text-foreground active:scale-95 disabled:pointer-events-none"
+                  className="trs-all-400 rounded-lg border border-border/60 bg-muted/40 px-2 py-0.5 text-[11px] text-muted-foreground hover:bg-muted/70 hover:text-foreground active:scale-95 disabled:pointer-events-none"
                 >
                   {preset.label}
                 </button>
               ))}
             </div>
           ) : null}
-          {helper ? <FieldDescription className="mt-1">{helper}</FieldDescription> : null}
+          {helper ? <FieldDescription className="text-xs text-muted-foreground">{helper}</FieldDescription> : null}
         </div>
       </FieldContent>
     </Field>
@@ -118,6 +127,7 @@ export function WorkbenchSettingsDialog({
   onSettingsChange,
   previewBlob,
   showTrigger = true,
+  scope = 'main',
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -125,6 +135,7 @@ export function WorkbenchSettingsDialog({
   onSettingsChange: (settings: WorkbenchSettings) => void
   previewBlob?: Blob | null
   showTrigger?: boolean
+  scope?: 'main' | 'focus-mobile'
 }) {
   const [previewUrl, setPreviewUrl] = useState<string>(ankiHelpImage)
   const [previewInfo, setPreviewInfo] = useState<{
@@ -136,6 +147,8 @@ export function WorkbenchSettingsDialog({
     importHeight: number
   } | null>(null)
   const importFormatLabel = settings.importCompressionFormat === 'jpeg' ? 'JPG' : 'WebP'
+  const showMainSettings = scope === 'main'
+  const showFocusMobileSettings = scope === 'focus-mobile'
 
   useEffect(() => {
     let disposed = false
@@ -143,6 +156,8 @@ export function WorkbenchSettingsDialog({
     let importPreviewUrl: string | null = null
 
     const buildPreview = async () => {
+      if (!showMainSettings) return;
+
       const sourceBlob: Blob = previewBlob ?? await fetch(ankiHelpImage).then((response) => response.blob())
       objectUrl = URL.createObjectURL(sourceBlob)
 
@@ -217,44 +232,90 @@ export function WorkbenchSettingsDialog({
         </DialogTrigger>
       ) : null}
       <DialogContent className="w-[min(96vw,48rem)] max-w-[calc(100%-0.75rem)] overflow-hidden rounded-2xl p-0 sm:max-w-[48rem]">
-        <DialogHeader className="border-b border-border/70 px-3 py-3 sm:px-4 sm:py-3.5">
-          <DialogTitle className="flex items-center gap-2">
-            <Settings2Icon className="size-4 text-muted-foreground" />
-            设置
+        <DialogHeader className="border-b border-border/50 px-4 py-4 sm:px-6 sm:py-5">
+          <DialogTitle className="flex items-center gap-2 text-base font-semibold">
+            <Settings2Icon className="size-5 text-muted-foreground" />
+            {showFocusMobileSettings ? '编辑设置' : '设置'}
           </DialogTitle>
+          <DialogDescription className="sr-only">
+            调整导入预处理、制卡模式、性能选项，以及移动端编辑偏好。
+          </DialogDescription>
         </DialogHeader>
-        <div className="flex max-h-[84vh] flex-col gap-3 overflow-auto px-3 py-3 md:px-4 md:py-4">
-          <div className="mx-auto flex w-full max-w-none min-w-0 flex-col justify-center gap-3 self-stretch">
-            <Card className="border-border/70 bg-muted/10 shadow-none">
-              <CardHeader className="gap-1.5 px-3 pb-2 pt-3 sm:px-4 sm:pb-2.5 sm:pt-4">
-                <CardTitle className="flex items-center gap-2 text-[13px] font-medium sm:text-sm">
+        <div className="flex max-h-[84vh] flex-col gap-4 overflow-auto bg-muted/5 px-4 py-4 md:px-6 md:py-6">
+          <div className="mx-auto flex w-full max-w-none min-w-0 flex-col justify-center gap-5 self-stretch">
+            {showFocusMobileSettings ? (
+              <Card className="overflow-hidden border-border/50 bg-muted/10 shadow-sm">
+                <CardHeader className="border-b border-border/40 px-4 py-3 sm:px-5 sm:py-3.5">
+                  <CardTitle className="flex items-center gap-2 text-sm font-semibold text-foreground">
+                    <Settings2Icon className="size-4 text-muted-foreground" />
+                    移动端编辑偏好
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="flex flex-col gap-4 px-4 py-4 sm:px-5 sm:py-5">
+                  <FieldGroup>
+                    <Field>
+                    <FieldLabel className="mb-1.5 flex items-center gap-2 text-sm font-medium text-foreground">
+                      <MousePointer2Icon className="size-4 text-muted-foreground" />
+                      长按遮罩直接删除
+                    </FieldLabel>
+                      <FieldContent>
+                        <div className="flex flex-col gap-2 rounded-xl border border-border/50 bg-background/40 p-3.5 shadow-sm">
+                          <div className="flex items-center justify-between gap-3">
+                            <div className="min-w-0 text-xs text-muted-foreground">
+                              默认关闭,手机易误触
+                            </div>
+                            <div className="flex shrink-0 items-center justify-end gap-3 text-right">
+                              <Switch
+                                checked={settings.mobileLongPressDeleteMask}
+                                onCheckedChange={(checked) => onSettingsChange({ ...settings, mobileLongPressDeleteMask: checked })}
+                                aria-label="长按删除遮罩"
+                                className="trs-all-400 mr-1 scale-[1.15] data-[state=checked]:bg-foreground"
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      </FieldContent>
+                    </Field>
+                  </FieldGroup>
+                </CardContent>
+              </Card>
+            ) : null}
+
+            {showMainSettings ? (
+            <>
+            <Card className="overflow-hidden border-border/50 bg-muted/10 shadow-sm">
+              <CardHeader className="border-b border-border/40 px-4 py-3 sm:px-5 sm:py-3.5">
+                <CardTitle className="flex items-center gap-2 text-sm font-semibold text-foreground">
                   <ImageDownIcon className="size-4 text-muted-foreground" />
                   导入预处理
                 </CardTitle>
               </CardHeader>
-              <CardContent className="flex flex-col gap-4 px-3 pb-3 sm:px-4 sm:pb-4">
+              <CardContent className="flex flex-col gap-4 px-4 py-4 sm:px-5 sm:py-5">
                 <FieldGroup>
                   <Field>
-                    <FieldLabel className="text-[13px] font-medium">导入时压缩</FieldLabel>
+                    <FieldLabel className="mb-1.5 flex items-center gap-2 text-sm font-medium text-foreground">
+                      <MinimizeIcon className="size-4 text-muted-foreground" />
+                      导入时压缩
+                      <span className={cn("rounded-md bg-foreground/10 px-1.5 py-0.5 text-[10px] font-semibold text-foreground/70",settings.importCompressionEnabled&&"hidden")}>建议开启</span>
+                    </FieldLabel>
                     <FieldContent>
-                      <div className="flex flex-col gap-2 rounded-2xl border border-border/60 bg-background/75 p-3">
+                      <div className="flex flex-col gap-2 rounded-xl border-2 border-border/50 bg-background/40 p-3.5 ">
                         <div className="flex items-center justify-between gap-3">
-                          <div className="min-w-0 text-[12px] text-muted-foreground">
-                            默认开启。开启后会进行尺寸和质量压缩,以减少页面内存占用。画面质量会有轻微损失。
+                          <div className="min-w-0 text-xs text-muted-foreground">
+                            压缩图片尺寸与质量，有效降低内存占用（画质轻微受损）
                           </div>
-                          <div className="flex shrink-0 items-center justify-end gap-2 text-right">
-                            <span className="text-[11px] font-medium text-muted-foreground">{settings.importCompressionEnabled ? '已开启' : '已关闭'}</span>
+                          <div className="flex shrink-0 items-center justify-end gap-3 text-right">
                             <Switch
                               checked={settings.importCompressionEnabled}
                               onCheckedChange={(checked) => onSettingsChange({ ...settings, importCompressionEnabled: checked })}
                               aria-label="导入时压缩"
-                              className="trs-all-400 mr-1 scale-125 data-[state=checked]:bg-foreground"
+                              className="trs-all-400 mr-1 scale-[1.15] data-[state=checked]:bg-foreground"
                             />
                           </div>
                         </div>
                         {settings.importCompressionEnabled ? (
-                          <div className="flex flex-col gap-2 mt-1">
-                            <div className="text-[12px] font-medium text-foreground/88">引擎格式</div>
+                          <div className="mt-1 flex flex-col gap-2 border-t border-border/40 pt-3">
+                            <div className="text-sm font-medium text-foreground/90">引擎格式</div>
                             <ToggleGroup
                               type="single"
                               value={settings.importCompressionFormat}
@@ -265,13 +326,13 @@ export function WorkbenchSettingsDialog({
                               }}
                               variant="outline"
                               spacing={1}
-                              className="w-full rounded-xl bg-background/80 p-1"
+                              className="h-8 w-full rounded-xl bg-background/80 p-0.5"
                             >
-                              <ToggleGroupItem value="webp" className="flex-1 justify-center">WebP</ToggleGroupItem>
-                              <ToggleGroupItem value="jpeg" className="flex-1 justify-center">JPG</ToggleGroupItem>
+                              <ToggleGroupItem value="webp" className="flex-1 justify-center text-xs">WebP</ToggleGroupItem>
+                              <ToggleGroupItem value="jpeg" className="flex-1 justify-center text-xs">JPG</ToggleGroupItem>
                             </ToggleGroup>
-                            <FieldDescription>
-                              JPG 兼容性更高，但会丢失透明通道；如果需要保留原有的透明背景层，请选择 WebP。
+                            <FieldDescription className="text-xs text-muted-foreground">
+                              JPG 无透明通道；需保持透明背景请选 WebP。
                             </FieldDescription>
                           </div>
                         ) : null}
@@ -282,28 +343,33 @@ export function WorkbenchSettingsDialog({
 
                 {settings.importCompressionEnabled ? (
                   <>
-                    <FieldGroup>
+                    <div className="flex flex-col sm:flex-row items-stretch gap-4 sm:gap-0 sm:divide-x sm:divide-border/40 sm:rounded-xl sm:border sm:border-border/50 sm:bg-background/40 sm:shadow-sm">
                       <SettingSlider
+                        className="flex-1 sm:p-4"
+                        wrapperClassName="sm:border-none sm:bg-transparent sm:shadow-none sm:p-0"
                         icon={MaximizeIcon}
-                        label="导入最大分辨率 (px)"
+                        label="导入最大分辨率"
                         value={settings.importMaxDimension}
-                        min={960}
-                        max={3200}
+                        min={480}
+                        max={4096}
                         onChange={(value) => onSettingsChange({ ...settings, importMaxDimension: value })}
                         presets={[
-                          { label: '960p', value: 960 },
-                          { label: '1080p', value: 1080 },
-                          { label: '2K', value: 1920 },
-                          { label: '4K', value: 2560 },
+                          { label: 'HD', value: 1280 },
+                          { label: 'FHD', value: 1920 },
+                          { label: '2K', value: 2560 },
+                          { label: '无限制', value: 4096 },
                         ]}
-                        helper="超过该分辨率将被等比缩小"
+                        helper="超出将被缩小。4096 即基本无限制"
                       />
                       <SettingSlider
+                        className="flex-1 sm:p-4"
+                        wrapperClassName="sm:border-none sm:bg-transparent sm:shadow-none sm:p-0"
                         icon={SlidersHorizontalIcon}
-                        label="导入压缩质量 (%)"
+                        label="导入压缩质量"
                         value={settings.importImageQuality}
                         min={1}
                         max={100}
+                        suffix="%"
                         onChange={(value) => onSettingsChange({ ...settings, importImageQuality: value })}
                         presets={[
                           { label: '极限', value: 5 },
@@ -311,59 +377,57 @@ export function WorkbenchSettingsDialog({
                           { label: '中', value: 50 },
                           { label: '高', value: 80 },
                         ]}
-                        helper="对阅读而言，即使质量为 1 也通常足够清晰，建议目标大小百 KB 左右，以节约预览内存"
+                        helper="对阅读而言，极低甚至也会很清晰"
                       />
-                    </FieldGroup>
+                    </div>
 
-                    <Separator className="bg-border/60" />
+                    <Separator className="bg-border/40" />
                   </>
                 ) : null}
 
                 <div className="flex flex-col gap-3">
-                  <div className="flex flex-col gap-2 rounded-2xl border border-border/60 bg-background/55 p-3.5 text-[12.5px] leading-relaxed text-muted-foreground sm:text-[13px]">
-                    <div className="flex items-center gap-2 font-medium text-foreground/85">
-                      <TriangleAlertIcon className="size-4 text-black" />
-                      使用建议
+                  <div className="flex items-start gap-2.5 rounded-xl bg-background/40 p-3 text-xs text-muted-foreground ">
+                    <TriangleAlertIcon className="mt-0.5 size-3.5 shrink-0 text-foreground/70" />
+                    <div className="flex flex-col gap-0.5 leading-normal">
+                      <span className="font-medium text-foreground/90">使用提示</span>
+                      <span>受限于浏览器性能，原图编辑可能卡顿。此设置仅影响预览质量，最终清晰度以导出为准。</span>
                     </div>
-                    <div>由于网页端性能限制，使用原始尺寸图片进行编辑可能产生卡顿</div>
-                    <div>此处调整的是预览编辑质量。可在导出页面进行最终质量确认</div>
                   </div>
 
-                  <ZoomableImagePreviewCard
-                    previewUrl={previewUrl}
-                    previewAlt="设置预览"
-                    title={settings.importCompressionEnabled ? `${importFormatLabel} 预处理细节预览` : '导入不压缩 (保留原图) 预览'}
-                    description={
-                      settings.importCompressionEnabled
-                        ? (previewInfo ? `预估单图大小: ${formatBytes(previewInfo.importSize)} (${formatDimension(previewInfo.importWidth, previewInfo.importHeight)})` : '加载中...')
-                        : (previewInfo ? `预估单图大小: ${formatBytes(previewInfo.originalSize)} (${formatDimension(previewInfo.originalWidth, previewInfo.originalHeight)})` : '加载中...')
-                    }
-                    dialogTitle="导入预处理细节预览"
-                    dialogDescription={
-                      settings.importCompressionEnabled
-                        ? `当前设置：缩小至最大 ${settings.importMaxDimension}px / WebP 质量 ${settings.importImageQuality}%。`
-                        : '当前不会引入体积衰减，也不会放大。'
-                    }
-                    compact={false}
-                    imageClassName="object-contain bg-background/70"
-                  />
+                  {settings.importCompressionEnabled ? (
+                    <ZoomableImagePreviewCard
+                      previewUrl={previewUrl}
+                      previewAlt="设置预览"
+                      title={`${importFormatLabel} 预估单图大小预览`}
+                      description={
+                        previewInfo ? `${formatBytes(previewInfo.importSize)} (${formatDimension(previewInfo.importWidth, previewInfo.importHeight)})` : '加载中...'
+                      }
+                      dialogTitle="导入预处理细节预览"
+                      dialogDescription={`当前设置：缩小至最大 ${settings.importMaxDimension}px / WebP 质量 ${settings.importImageQuality}%。`}
+                      compact={false}
+                      imageClassName="object-contain bg-background/70"
+                    />
+                  ) : null}
                 </div>
               </CardContent>
             </Card>
 
-            <Card className="border-border/70 bg-muted/10 shadow-none">
-              <CardHeader className="gap-1.5 px-3 pb-2 pt-3 sm:px-4 sm:pb-2.5 sm:pt-4">
-                <CardTitle className="flex items-center gap-2 text-[13px] font-medium sm:text-sm">
+            <Card className="overflow-hidden border-border/50 bg-muted/10 shadow-sm">
+              <CardHeader className="border-b border-border/40 px-4 py-3 sm:px-5 sm:py-3.5">
+                <CardTitle className="flex items-center gap-2 text-sm font-semibold text-foreground">
                   <Settings2Icon className="size-4 text-muted-foreground" />
                   制卡模式
                 </CardTitle>
               </CardHeader>
-              <CardContent className="flex flex-col gap-3 px-3 pb-3 sm:px-4 sm:pb-4">
+              <CardContent className="flex flex-col gap-4 px-4 py-4 sm:px-5 sm:py-5">
                 <FieldGroup>
                   <Field>
-                    <FieldLabel className="text-[13px] font-medium">导出时怎样生成卡片</FieldLabel>
+                    <FieldLabel className="mb-1.5 flex items-center gap-2 text-sm font-medium text-foreground">
+                      <BlocksIcon className="size-4 text-muted-foreground" />
+                      导出时怎样生成卡片
+                    </FieldLabel>
                     <FieldContent>
-                      <div className="flex flex-col gap-2">
+                      <div className="flex flex-col gap-2.5">
                         {CARD_GENERATION_MODE_OPTIONS.map((option) => {
                           const active = settings.cardGenerationMode === option.value
                           return (
@@ -372,20 +436,20 @@ export function WorkbenchSettingsDialog({
                               type="button"
                               onClick={() => onSettingsChange({ ...settings, cardGenerationMode: option.value })}
                               className={cn(
-                                'w-full rounded-2xl border px-3 py-3 text-left transition',
+                                'w-full rounded-xl border px-3.5 py-3 text-left transition',
                                 active
                                   ? 'border-foreground/80 bg-background text-foreground shadow-sm'
-                                  : 'border-border/60 bg-background/70 text-foreground hover:border-foreground/30',
+                                  : 'border-border/50 bg-background/40 text-foreground hover:border-border/80 hover:bg-background/60 hover:shadow-sm',
                               )}
                             >
                               <div className="flex items-start justify-between gap-3">
-                                <div className="space-y-1">
-                                  <div className="text-[13px] font-medium">{option.label}</div>
-                                  <div className="text-[12px] leading-5 text-muted-foreground">{option.description}</div>
+                                <div className="min-w-0 space-y-1">
+                                  <div className="text-sm font-medium">{option.label}</div>
+                                  <div className="text-xs text-muted-foreground">{option.description}</div>
                                 </div>
                                 <div
                                   className={cn(
-                                    'mt-0.5 size-4 rounded-full border',
+                                    'mr-0.5 mt-0.5 size-4 shrink-0 rounded-full border',
                                     active ? 'border-foreground bg-foreground' : 'border-border/70 bg-background',
                                   )}
                                 />
@@ -400,46 +464,52 @@ export function WorkbenchSettingsDialog({
               </CardContent>
             </Card>
 
-            <Card className="border-border/70 bg-muted/10 shadow-none">
-              <CardHeader className="gap-1.5 px-3 pb-2 pt-3 sm:px-4 sm:pb-2.5 sm:pt-4">
-                <CardTitle className="flex items-center gap-2 text-[13px] font-medium sm:text-sm">
+            <Card className="overflow-hidden border-border/50 bg-muted/10 shadow-sm">
+              <CardHeader className="border-b border-border/40 px-4 py-3 sm:px-5 sm:py-3.5">
+                <CardTitle className="flex items-center gap-2 text-sm font-semibold text-foreground">
                   <MaximizeIcon className="size-4 text-muted-foreground" />
                   性能与体验
                 </CardTitle>
               </CardHeader>
-              <CardContent className="flex flex-col gap-3 px-3 pb-3 sm:px-4 sm:pb-4">
+              <CardContent className="flex flex-col gap-4 px-4 py-4 sm:px-5 sm:py-5">
                 <FieldGroup>
                   <Field>
-                    <FieldLabel className="text-[13px] font-medium">禁用流畅动画 (极致性能)</FieldLabel>
+                    <FieldLabel className="mb-1.5 flex items-center gap-2 text-sm font-medium text-foreground">
+                      <ZapIcon className="size-4 text-muted-foreground" />
+                      禁用流畅动画 (极致性能)
+                    </FieldLabel>
                     <FieldContent>
-                      <div className="flex justify-between items-center gap-3 rounded-2xl border border-border/60 bg-background/75 p-3">
-                        <div className="min-w-0 text-[12px] text-muted-foreground">
-                          关闭所有 Framer Motion 高帧率动画及界面缓动，以节省电池并在配置较低的设备上换取不掉帧的老派响应速度。
+                      <div className="flex items-center justify-between gap-3 rounded-xl border border-border/50 bg-background/40 p-3.5 shadow-sm">
+                        <div className="min-w-0 text-xs text-muted-foreground">
+                          关闭所有过渡动画，在低配设备换取极致响应速度并节省电量。
                         </div>
-                        <div className="flex shrink-0 items-center justify-end gap-2 text-right">
+                        <div className="flex shrink-0 items-center justify-end gap-3 text-right">
                           <Switch
                             checked={settings.disableAnimations}
                             onCheckedChange={(checked) => onSettingsChange({ ...settings, disableAnimations: checked })}
                             aria-label="禁用流畅动画"
-                            className="trs-all-400 mr-1 scale-125 data-[state=checked]:bg-foreground"
+                            className="trs-all-400 mr-1 scale-[1.15] data-[state=checked]:bg-foreground"
                           />
                         </div>
                       </div>
                     </FieldContent>
                   </Field>
                   <Field>
-                    <FieldLabel className="text-[13px] font-medium">启用聚焦悬浮控制岛</FieldLabel>
+                    <FieldLabel className="mb-1.5 flex items-center gap-2 text-sm font-medium text-foreground">
+                      <PanelTopIcon className="size-4 text-muted-foreground" />
+                      启用聚焦悬浮控制岛
+                    </FieldLabel>
                     <FieldContent>
-                      <div className="flex justify-between items-center gap-3 rounded-2xl border border-border/60 bg-background/75 p-3">
-                        <div className="min-w-0 text-[12px] text-muted-foreground">
-                          在“聚焦编辑”模式下采用现代化的悬浮玻璃条替代传统的顶部按钮栏，留出更多画板空间。
+                      <div className="flex items-center justify-between gap-3 rounded-xl border border-border/50 bg-background/40 p-3.5 shadow-sm">
+                        <div className="min-w-0 text-xs text-muted-foreground">
+                          聚焦模式下使用现代悬浮控制条，最大化画板空间。
                         </div>
-                        <div className="flex shrink-0 items-center justify-end gap-2 text-right">
+                        <div className="flex shrink-0 items-center justify-end gap-3 text-right">
                           <Switch
                             checked={settings.modernFloatingToolbar}
                             onCheckedChange={(checked) => onSettingsChange({ ...settings, modernFloatingToolbar: checked })}
                             aria-label="启用聚焦悬浮控制岛"
-                            className="trs-all-400 mr-1 scale-125 data-[state=checked]:bg-foreground"
+                            className="trs-all-400 mr-1 scale-[1.15] data-[state=checked]:bg-foreground"
                           />
                         </div>
                       </div>
@@ -448,6 +518,8 @@ export function WorkbenchSettingsDialog({
                 </FieldGroup>
               </CardContent>
             </Card>
+            </>
+            ) : null}
           </div>
         </div>
       </DialogContent>

@@ -12,6 +12,7 @@ export const DEFAULT_WORKBENCH_SETTINGS: WorkbenchSettings = {
   cardGenerationMode: 'hide-all-reveal-current',
   disableAnimations: false,
   modernFloatingToolbar: true,
+  mobileLongPressDeleteMask: false,
 }
 
 export function normalizeWorkbenchSettings(
@@ -27,6 +28,7 @@ export function normalizeWorkbenchSettings(
     cardGenerationMode: normalizeCardGenerationMode(value?.cardGenerationMode),
     disableAnimations: Boolean(value?.disableAnimations ?? DEFAULT_WORKBENCH_SETTINGS.disableAnimations),
     modernFloatingToolbar: Boolean(value?.modernFloatingToolbar ?? DEFAULT_WORKBENCH_SETTINGS.modernFloatingToolbar),
+    mobileLongPressDeleteMask: Boolean(value?.mobileLongPressDeleteMask ?? DEFAULT_WORKBENCH_SETTINGS.mobileLongPressDeleteMask),
   }
 }
 

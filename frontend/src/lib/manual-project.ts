@@ -21,6 +21,11 @@ export interface BuildDraftProgress {
   stageLabel: string
 }
 
+export interface BuildDraftFailure {
+  fileName: string
+  message: string
+}
+
 interface DraftBlobSource {
   blob: Blob
   name: string
@@ -273,6 +278,7 @@ export async function buildDraftItemsFromFiles(
     onProgress?: (progress: BuildDraftProgress) => void
     settings?: WorkbenchSettings
     onHeifConverted?: (payload: { count: number; fileNames: string[] }) => void
+    onFileFailure?: (failure: BuildDraftFailure) => void
   },
 ): Promise<DraftListItem[]> {
   const list = [...files].filter((file) => IMAGE_TYPES.has(file.type) || /\.(png|jpe?g|webp|bmp|gif|heic|heif)$/i.test(file.name))
@@ -280,30 +286,37 @@ export async function buildDraftItemsFromFiles(
   const heifConvertedFiles: string[] = []
 
   for (const [index, file] of list.entries()) {
-    const result = await buildDraftItemFromImportedFile(file, {
-      settings: options?.settings,
-      onProgress: (progress) => {
-        options?.onProgress?.({
-          completed: index,
-          total: list.length,
-          fileName: file.name,
-          percent: Math.max(1, Math.round(((index + progress.progress / 100) / Math.max(list.length, 1)) * 100)),
-          stageLabel: progress.label,
-        })
-      },
-    })
-    if (result.convertedFromHeif) {
-      heifConvertedFiles.push(file.name)
+    try {
+      const result = await buildDraftItemFromImportedFile(file, {
+        settings: options?.settings,
+        onProgress: (progress) => {
+          options?.onProgress?.({
+            completed: index,
+            total: list.length,
+            fileName: file.name,
+            percent: Math.max(1, Math.round(((index + progress.progress / 100) / Math.max(list.length, 1)) * 100)),
+            stageLabel: progress.label,
+          })
+        },
+      })
+      if (result.convertedFromHeif) {
+        heifConvertedFiles.push(file.name)
+      }
+      const item = result.item
+      items.push(item)
+      options?.onProgress?.({
+        completed: index + 1,
+        total: list.length,
+        fileName: file.name,
+        percent: Math.max(1, Math.round(((index + 1) / Math.max(list.length, 1)) * 100)),
+        stageLabel: options?.settings?.importCompressionEnabled ? '当前图片处理完成' : '当前图片已加入项目',
+      })
+    } catch (error) {
+      options?.onFileFailure?.({
+        fileName: file.name,
+        message: error instanceof Error ? error.message : '图片处理失败。',
+      })
     }
-    const item = result.item
-    items.push(item)
-    options?.onProgress?.({
-      completed: index + 1,
-      total: list.length,
-      fileName: file.name,
-      percent: Math.max(1, Math.round(((index + 1) / Math.max(list.length, 1)) * 100)),
-      stageLabel: options?.settings?.importCompressionEnabled ? '当前图片处理完成' : '当前图片已加入项目',
-    })
   }
 
   if (heifConvertedFiles.length > 0) {

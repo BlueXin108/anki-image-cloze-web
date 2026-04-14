@@ -14,6 +14,7 @@ import {
 	Loader2Icon,
 	SquarePenIcon,
 	ZoomInIcon,
+	CropIcon,
 } from "lucide-react";
 import {motion, AnimatePresence} from "framer-motion";
 
@@ -51,6 +52,7 @@ import type {
 	CardGenerationMode,
 	DraftListItem,
 	ManualPreviewSet,
+	WorkbenchSettings,
 } from "@/types";
 
 interface ManualWorkspaceProps {
@@ -70,6 +72,8 @@ interface ManualWorkspaceProps {
 	onFocusModeChange?: (open: boolean) => void;
 	shortcutOverlayReady?: boolean;
 	modernFloatingToolbar?: boolean;
+	workbenchSettings: WorkbenchSettings;
+	onWorkbenchSettingsChange: (settings: WorkbenchSettings) => void;
 }
 
 // 提取你提供的完整快捷键清单
@@ -243,6 +247,8 @@ export const ManualWorkspace = memo(function ManualWorkspace({
 	onFocusModeChange,
 	shortcutOverlayReady = true,
 	modernFloatingToolbar,
+	workbenchSettings,
+	onWorkbenchSettingsChange,
 }: ManualWorkspaceProps) {
 	const [previewOpen, setPreviewOpen] = useState(false);
 	const [previewTitle, setPreviewTitle] = useState("");
@@ -461,6 +467,7 @@ export const ManualWorkspace = memo(function ManualWorkspace({
 					"z-10 brightness-100  drop-shadow-[10px_0px_2px_rgba(24,18,8,0.04)]",
 			)}>
 			<AnimatePresence mode="wait" initial={false}>
+				
 				<motion.div
 					layoutId={`editor-view-${selectedItem.draft.id}`}
 					key={`manual-${mode}-${selectedItem.draft.id}`}
@@ -469,6 +476,27 @@ export const ManualWorkspace = memo(function ManualWorkspace({
 					exit={{opacity: 0, scale: 0.98}}
 					transition={{duration: 0.35, ease: [0, 0.43, 0, 0.99]}}
 					className="w-full h-full relative">
+						<div className={cn("absolute top-0 right-0 z-100 h-0 w-full flex justify-end overflow-visible",touchOptimized&&"hidden",)}>
+							<Button
+								variant={touchOptimized ? "ghost" : "outline"}
+								size={touchOptimized ? "default" : "sm"}
+								className={cn(
+									"shadow-none outline-none border-none",
+									// 使用 translate-y-[-100%] 让按钮向上偏移出父容器边界，
+									// 或者根据需要调整 top 值（如 top-2 right-2）
+									"translate-y-2 -translate-x-2", 
+									touchOptimized ? "h-11 w-full shadow-md" : "bg-white/0 backdrop-blur-sm",
+								)}
+								onClick={() => setFocusMode(true)}
+							>
+								{touchOptimized ? (
+									<SquarePenIcon data-icon="inline-start" />
+								) : (
+									<ZoomInIcon data-icon="inline-start" />
+								)}
+								{readOnlyInWorkspace ? "进入聚焦编辑" : "聚焦编辑（Q）"}
+							</Button>
+						</div>
 					<ImageEditor
 						draft={selectedItem.draft}
 						sourceImageUrl={selectedItem.image.source_url || ""}
@@ -496,6 +524,7 @@ export const ManualWorkspace = memo(function ManualWorkspace({
 							if (!touchOptimized && mode === "normal")
 								setIsEditorHovered(hovered);
 						}}
+						allowLongPressDelete={workbenchSettings.mobileLongPressDeleteMask}
 					/>
 				</motion.div>
 			</AnimatePresence>
@@ -565,23 +594,24 @@ export const ManualWorkspace = memo(function ManualWorkspace({
 
 			{!focusMode ? (
 				<ScrollArea className="h-full pr-3">
-					<div className="flex flex-col gap-4 px-2">
-						<Card className="border-border/70 bg-background/80 ring-0">
+					<div className="flex flex-col gap-4 px-2 pb-4">
+						<Card className="border-border/70 bg-background/80 py-0 pb-2 ring-0">
 							<CardHeader
 								className={cn(
-									"gap-3 transition-[opacity,filter] duration-200 border-b-[0.8px] border-border/70",
+									//桌面端隐藏
+									"gap-3 pt-4 transition-[opacity,filter] duration-200 border-b-[0.8px] border-border/70","flex sm:hidden",
 									!touchOptimized &&
 										isEditorHovered &&
 										"opacity-60 saturate-75",
 								)}>
-								<div className="flex flex-wrap items-start justify-between gap-3">
+								<div className="flex flex-col flex-wrap w-full items-start justify-between gap-3">
 									<div className="space-y-1 flex-1 min-w-0 text-[12px]">
 										<CardTitle
 											className={cn(
 												"text-[14px]",
 												touchOptimized && "text-[14px]",
 											)}>
-											手动图像编辑
+											图像编辑
 										</CardTitle>
 										{!touchOptimized && !selectedItemPreparing ? (
 											<CardDescription className="text-[12px]">
@@ -592,40 +622,43 @@ export const ManualWorkspace = memo(function ManualWorkspace({
 										) : null}
 										{readOnlyInWorkspace && !selectedItemPreparing ? (
 											<div className="flex items-center gap-1.5 text-xs text-muted-foreground pb-0.5">
-												常规页仅供预览全图，请进入上方聚焦编辑层操作。
+												常规页仅供预览全图，请进入聚焦编辑操作
 											</div>
 										) : null}
 										{selectedItemPreparing ? (
 											<CardDescription>
-												这张图还在后台转换中。转换完成后会自动开放编辑，不用重新导入。
+												这张图还在后台转换中。转换完成后会自动开放编辑，不用重新导入
 											</CardDescription>
 										) : null}
 									</div>
 
 									{!selectedItemPreparing ? (
-										<Button
-											variant={touchOptimized ? "default" : "outline"}
-											size={touchOptimized ? "default" : "sm"}
-											className={cn(
-												"shadow-none outline-none border-none ",
-												touchOptimized ? "h-11 w-full shadow-md" : undefined,
-											)}
-											onClick={() => setFocusMode(true)}>
-											{touchOptimized ? (
-												<SquarePenIcon data-icon="inline-start" />
-											) : (
-												<ZoomInIcon data-icon="inline-start" />
-											)}
-											{readOnlyInWorkspace ? "进入聚焦编辑" : "聚焦编辑（Q）"}
-										</Button>
+										<div className="flex justify-center items-center w-full">
+											<Button
+												variant={touchOptimized ? "default" : "outline"}
+												size={touchOptimized ? "default" : "sm"}
+												className={cn(
+													"shadow-none outline-none border-none ",
+													touchOptimized ? "h-11 w-full w-max-full" : undefined,
+												)}
+												onClick={() => setFocusMode(true)}>
+												{touchOptimized ? (
+													<SquarePenIcon data-icon="inline-start" />
+												) : (
+													<ZoomInIcon data-icon="inline-start" />
+												)}
+												{readOnlyInWorkspace ? "进入聚焦编辑" : "聚焦编辑（Q）"}
+											</Button>
+										</div>
 									) : null}
 								</div>
 							</CardHeader>
 							<CardContent
 								className={cn(
-									"flex flex-col pt-2",
+									"flex flex-col",
 									touchOptimized ? "gap-2" : "gap-3",
 								)}>
+									
 								{selectedItemPreparing ? (
 									<div className="flex min-h-[320px] items-center justify-center rounded-2xl border border-dashed border-border/70 bg-muted/20 p-6 text-center">
 										<div className="flex max-w-sm flex-col items-center gap-3 text-sm text-muted-foreground">
@@ -642,6 +675,7 @@ export const ManualWorkspace = memo(function ManualWorkspace({
 											</div>
 										</div>
 									</div>
+									
 								) : (
 									renderEditor("normal")
 								)}
@@ -662,7 +696,7 @@ export const ManualWorkspace = memo(function ManualWorkspace({
 										预览当前卡片分组
 									</CardTitle>
 									<CardDescription
-										className={cn(touchOptimized && "text-[11px]")}>
+										className={cn("text-[11px]", touchOptimized && "text-[10px]")}>
 										点下面的小色块，切换问题和答案的预览。
 									</CardDescription>
 								</CardHeader>
@@ -720,9 +754,12 @@ export const ManualWorkspace = memo(function ManualWorkspace({
 										</div>
 									) : (
 										<Empty className="border-border bg-muted/20">
-											<EmptyHeader>
-												<EmptyTitle>还没有遮罩</EmptyTitle>
-												<EmptyDescription>
+											<EmptyHeader className="items-center text-center">
+												<div className="flex size-14 items-center justify-center rounded-2xl  bg-background/90 text-foreground/70 ">
+													<CropIcon className="size-7" />
+												</div>
+												<EmptyTitle className="text-sm">还没有遮罩</EmptyTitle>
+												<EmptyDescription className="text-[11px] leading-5">
 													先画出至少一个遮罩，页面才会生成对应的卡片预览。
 												</EmptyDescription>
 											</EmptyHeader>
@@ -732,7 +769,7 @@ export const ManualWorkspace = memo(function ManualWorkspace({
 							</Card>
 						) : null}
 
-						{!selectedItemPreparing ? (
+						{!selectedItemPreparing && groupedCardMasks.length > 0 ? (
 							<div
 								className={cn(
 									"grid gap-4 xl:grid-cols-2 transition-[opacity,filter] duration-200",
@@ -829,6 +866,8 @@ export const ManualWorkspace = memo(function ManualWorkspace({
 				touchOptimized={touchOptimized}
 				disableWheelResize={touchOptimized}
 				modernFloatingToolbar={modernFloatingToolbar}
+				workbenchSettings={workbenchSettings}
+				onWorkbenchSettingsChange={onWorkbenchSettingsChange}
 			/>
 		</div>
 	);

@@ -61,6 +61,17 @@ export function LandingBackground({ introReady: _introReady, workbenchShifted = 
   }, [])
 
   useEffect(() => {
+    if (import.meta.env.DEV) {
+      console.info('[landing-bg] component mounted')
+    }
+    return () => {
+      if (import.meta.env.DEV) {
+        console.info('[landing-bg] component unmounted')
+      }
+    }
+  }, [])
+
+  useEffect(() => {
     let initialMouseX: number | null = null
     let initialMouseY: number | null = null
     let baseBeta: number | null = null
@@ -115,6 +126,7 @@ export function LandingBackground({ introReady: _introReady, workbenchShifted = 
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       transition={{ duration: 1.2, ease: [0, 0.43, 0, 0.99] }}
+      data-landing-background="true"
       className="absolute inset-0 z-0 overflow-hidden bg-background pointer-events-none opacity-0 will-change-[opacity]"
     >
       <motion.div

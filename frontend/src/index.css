@@ -246,4 +246,31 @@ body {
     width: 0.8rem !important;
     height: 0.8rem !important;
   }
+
+  .cn-toast-icon {
+    width: 3rem !important;
+    height: 3rem !important;
+    margin-right: 0.15rem !important;
+    margin-left: 0 !important;
+    justify-content: center !important;
+    align-items: center !important;
+    align-self: center !important;
+    overflow: visible !important;
+  }
+
+  .cn-toast-icon > div {
+    width: 100% !important;
+    height: 100% !important;
+    display: block !important;
+  }
+
+  .cn-toast-icon > svg {
+    width: 1rem !important;
+    height: 1rem !important;
+    display: block !important;
+  }
+
+  .cn-toast-content {
+    min-width: 0;
+  }
 }

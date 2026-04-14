@@ -2,7 +2,10 @@
 
 import { useTheme } from "next-themes"
 import { Toaster as Sonner, type ToasterProps } from "sonner"
-import { CircleCheckIcon, InfoIcon, TriangleAlertIcon, OctagonXIcon, Loader2Icon } from "lucide-react"
+import { InfoIcon, TriangleAlertIcon, OctagonXIcon } from "lucide-react"
+
+import { Spinner } from "@/components/ui/spinner"
+import { SuccessLottie } from "@/components/ui/success-lottie"
 
 const Toaster = ({ ...props }: ToasterProps) => {
   const { theme = "system" } = useTheme()
@@ -13,7 +16,7 @@ const Toaster = ({ ...props }: ToasterProps) => {
       className="toaster group !z-[260] pointer-events-auto"
       icons={{
         success: (
-          <CircleCheckIcon className="size-4" />
+          <SuccessLottie className="size-full shrink-0" />
         ),
         info: (
           <InfoIcon className="size-4" />
@@ -25,7 +28,7 @@ const Toaster = ({ ...props }: ToasterProps) => {
           <OctagonXIcon className="size-4" />
         ),
         loading: (
-          <Loader2Icon className="size-4 animate-spin" />
+          <Spinner className="size-full shrink-0" />
         ),
       }}
       style={
@@ -42,6 +45,8 @@ const Toaster = ({ ...props }: ToasterProps) => {
         duration: 5000,
         classNames: {
           toast: "cn-toast pointer-events-auto",
+          icon: "cn-toast-icon",
+          content: "cn-toast-content",
           closeButton: "cn-toast-close pointer-events-auto",
         },
       }}

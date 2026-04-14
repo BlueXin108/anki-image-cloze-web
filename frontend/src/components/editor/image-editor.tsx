@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
-import { CropIcon, PlusIcon, RotateCcwIcon, ScanSearchIcon, Undo2Icon, Redo2Icon, Trash2Icon, EyeIcon, EyeOffIcon } from 'lucide-react'
+import { ChevronDownIcon, ChevronUpIcon, CropIcon, PlusIcon, RotateCcwIcon, ScanSearchIcon, Undo2Icon, Redo2Icon, Trash2Icon, EyeIcon, EyeOffIcon } from 'lucide-react'
 import { AnimatePresence, motion } from 'framer-motion'
 
 import type { BBox, CardDraft, MaskRect } from '@/types'
@@ -104,6 +104,7 @@ interface ImageEditorProps {
   canGoNext?: boolean
   onImageHoverChange?: (hovered: boolean) => void
   modernFloatingToolbar?: boolean
+  allowLongPressDelete?: boolean
 }
 
 function resolveDisplayedCrop(draft: CardDraft, imageWidth: number, imageHeight: number): BBox {
@@ -398,7 +399,9 @@ export function ImageEditor({
   canGoNext = false,
   onImageHoverChange,
   modernFloatingToolbar = true,
+  allowLongPressDelete = true,
 }: ImageEditorProps) {
+  const mobileModeEnabled = _touchOptimized && !readOnly
   const normalizedDraftMasks = normalizeMaskGroups(draft.masks)
   const imageRef = useRef<HTMLImageElement | null>(null)
   const editorViewportRef = useRef<HTMLDivElement | null>(null)
@@ -415,13 +418,17 @@ export function ImageEditor({
   const dragRef = useRef<DragState | null>(null)
   const pendingPointerRef = useRef<{ clientX: number; clientY: number } | null>(null)
   const pointerFrameRef = useRef<number | null>(null)
+  const mergeBounceTimeoutRef = useRef<number | null>(null)
   const [localMasks, setLocalMasks] = useState<MaskRect[]>(normalizedDraftMasks)
   const [localCrop, setLocalCrop] = useState<BBox>(resolveDisplayedCrop(draft, imageWidth, imageHeight))
   const [selectedMaskIds, setSelectedMaskIds] = useState<string[]>([])
+  const [mergeBouncedMaskIds, setMergeBouncedMaskIds] = useState<string[]>([])
   const [drag, setDrag] = useState<DragState | null>(null)
   const [showOcrOverlay, setShowOcrOverlay] = useState(false)
   const [showMaskOverlay, setShowMaskOverlay] = useState(true)
   const [sourceImageLoaded, setSourceImageLoaded] = useState(false)
+  const [showViewportScrollButtons, setShowViewportScrollButtons] = useState(false)
+  const [mobileInteractionMode, setMobileInteractionMode] = useState<'navigate' | 'crop' | 'select' | 'sort'>('navigate')
 
   const scrollViewport = (offsetY: number) => {
     if (editorViewportRef.current) {
@@ -435,6 +442,36 @@ export function ImageEditor({
   const [normalViewportWidth, setNormalViewportWidth] = useState<number | null>(null)
   const [focusViewportSize, setFocusViewportSize] = useState<{ width: number; height: number } | null>(null)
   const [windowHeight, setWindowHeight] = useState<number>(() => (typeof window === 'undefined' ? 900 : window.innerHeight))
+  useEffect(() => {
+    if (!_touchOptimized) {
+      setShowViewportScrollButtons(false)
+      return
+    }
+
+    const viewport = editorViewportRef.current
+    if (!viewport) return
+
+    const updateVisibility = () => {
+      setShowViewportScrollButtons(viewport.scrollHeight - viewport.clientHeight > 12)
+    }
+
+    updateVisibility()
+    viewport.addEventListener('scroll', updateVisibility, { passive: true })
+    window.addEventListener('resize', updateVisibility)
+
+    let observer: ResizeObserver | null = null
+    if (typeof ResizeObserver !== 'undefined') {
+      observer = new ResizeObserver(() => updateVisibility())
+      observer.observe(viewport)
+    }
+
+    return () => {
+      viewport.removeEventListener('scroll', updateVisibility)
+      window.removeEventListener('resize', updateVisibility)
+      observer?.disconnect()
+    }
+  }, [_touchOptimized, focusLayout, imageWidth, imageHeight, localCrop, localMasks.length, sourceImageLoaded])
+
   const selectedMaskIdSet = useMemo(() => new Set(selectedMaskIds), [selectedMaskIds])
   const normalizedLocalMasks = useMemo(() => normalizeMaskGroups(localMasks), [localMasks])
   const selectedMasks = useMemo(
@@ -466,6 +503,11 @@ export function ImageEditor({
   const showInlineImageNavigation = !focusLayout && (canGoPrevious || canGoNext)
   const showInlineImageNavigationWhileHovered =
     showInlineImageNavigation && (_touchOptimized || imageFrameHovered || pointerInsideEditor)
+  const mobileCropMode = mobileModeEnabled && mobileInteractionMode === 'crop'
+  const mobileSelectMode = mobileModeEnabled && mobileInteractionMode === 'select'
+  const mobileSortMode = mobileModeEnabled && mobileInteractionMode === 'sort'
+  const cropModeActive = !_touchOptimized || mobileCropMode
+  const selectionModeActive = !_touchOptimized || mobileSelectMode
 
   useEffect(() => {
     setSourceImageLoaded(false)
@@ -474,6 +516,12 @@ export function ImageEditor({
       setSourceImageLoaded(true)
     }
   }, [draft.id, sourceImageUrl])
+
+  useEffect(() => {
+    if (!mobileModeEnabled) {
+      setMobileInteractionMode('navigate')
+    }
+  }, [mobileModeEnabled, draft.id])
 
   const getDisplaySize = () => {
     if (!imageRef.current) {
@@ -539,6 +587,9 @@ export function ImageEditor({
   useEffect(
     () => () => {
       cancelPendingWheelCommit()
+      if (mergeBounceTimeoutRef.current !== null && typeof window !== 'undefined') {
+        window.clearTimeout(mergeBounceTimeoutRef.current)
+      }
       if (pointerFrameRef.current !== null && typeof window !== 'undefined') {
         window.cancelAnimationFrame(pointerFrameRef.current)
       }
@@ -921,6 +972,7 @@ export function ImageEditor({
 
   const beginCropDrag = (event: ReactPointerEvent<HTMLElement>, kind: 'crop-move' | 'crop-resize', handle?: ResizeHandle) => {
     if (readOnly) return
+    if (_touchOptimized && !mobileCropMode) return
     const displaySize = getDisplaySize()
     if (displaySize.width < 2 || displaySize.height < 2 || event.altKey || event.button !== 0) return
     event.preventDefault()
@@ -948,11 +1000,23 @@ export function ImageEditor({
     if (readOnly) return
     const displaySize = getDisplaySize()
     if (displaySize.width < 2 || displaySize.height < 2 || event.altKey) return
+    if (_touchOptimized && mobileSortMode) {
+      beginOrderTrace(event as unknown as ReactPointerEvent<HTMLDivElement>, true)
+      return
+    }
     if (event.button === 1) {
       beginOrderTrace(event as unknown as ReactPointerEvent<HTMLDivElement>)
       return
     }
     if (event.button !== 0) return
+    if (_touchOptimized && mobileSelectMode) {
+      event.preventDefault()
+      event.stopPropagation()
+      setSelectedMaskIds((current) =>
+        current.includes(mask.id) ? current.filter((id) => id !== mask.id) : [...current, mask.id],
+      )
+      return
+    }
     event.preventDefault()
     event.stopPropagation()
 
@@ -1030,21 +1094,29 @@ export function ImageEditor({
     if (displaySize.width < 2 || displaySize.height < 2) return
     const point = clientToImagePoint(event.clientX, event.clientY)
 
+    if (_touchOptimized && mobileSortMode) {
+      beginOrderTrace(event, true)
+      return
+    }
+
     if (!event.altKey) {
       if (event.target === event.currentTarget) {
         event.preventDefault()
         event.stopPropagation()
-        setSelectedMaskIds([])
-        setHoveredMaskId(null)
-        setDrag({
-          kind: 'selection-marquee',
-          startX: event.clientX,
-          startY: event.clientY,
-          currentX: event.clientX,
-          currentY: event.clientY,
-          startPoint: point,
-          currentPoint: point,
-        })
+        if (selectionModeActive) {
+          setSelectedMaskIds([])
+          setHoveredMaskId(null)
+          setDrag({
+            kind: 'selection-marquee',
+            startX: event.clientX,
+            startY: event.clientY,
+            currentX: event.clientX,
+            currentY: event.clientY,
+            startPoint: point,
+            currentPoint: point,
+          })
+          return
+        }
       }
       return
     }
@@ -1135,11 +1207,22 @@ export function ImageEditor({
     if (readOnly) return
     if (!canMergeSelectedMasks) return
     pushHistorySnapshot()
+    const bouncedMaskIds = [...selectedMaskIds]
     const next = mergeMasksIntoCard(localMasksRef.current, selectedMaskIds)
     setLocalMasks(next)
     localMasksRef.current = next
     const mergedGroupIds = [...new Set(next.filter((mask) => selectedMaskIds.includes(mask.id)).map((mask) => maskGroupId(mask)))]
     setSelectedMaskIds(masksInGroups(next, mergedGroupIds))
+    setMergeBouncedMaskIds(bouncedMaskIds)
+    if (mergeBounceTimeoutRef.current !== null && typeof window !== 'undefined') {
+      window.clearTimeout(mergeBounceTimeoutRef.current)
+    }
+    if (typeof window !== 'undefined') {
+      mergeBounceTimeoutRef.current = window.setTimeout(() => {
+        setMergeBouncedMaskIds([])
+        mergeBounceTimeoutRef.current = null
+      }, 460)
+    }
     await commitMasksImmediate(next)
   }
 
@@ -1154,9 +1237,10 @@ export function ImageEditor({
     await commitMasksImmediate(next)
   }
 
-  const beginOrderTrace = (event: ReactPointerEvent<HTMLDivElement>) => {
+  const beginOrderTrace = (event: ReactPointerEvent<HTMLDivElement>, allowPrimary = false) => {
     if (readOnly) return
-    if (event.button !== 1) return
+    if (!allowPrimary && event.button !== 1) return
+    if (allowPrimary && event.button !== 0) return
     const displaySize = getDisplaySize()
     if (displaySize.width < 2 || displaySize.height < 2) return
     const point = clientToImagePoint(event.clientX, event.clientY)
@@ -1216,7 +1300,6 @@ export function ImageEditor({
     !!focusViewportSize &&
     imageWidth <= focusViewportSize.width &&
     imageHeight <= focusViewportSize.height
-  const shouldShrinkFocusCanvas = !!isFocusImageSmallerThanViewport
   const shouldFillTouchFocusViewport = focusLayout && _touchOptimized && !!focusViewportSize && !isFocusImageSmallerThanViewport
   const focusImageStyle =
     focusLayout && focusViewportSize
@@ -1249,17 +1332,17 @@ export function ImageEditor({
     <ImageEditorToolbar
       touchOptimized={_touchOptimized}
       focusLayout={focusLayout}
+      mobileInteractionMode={mobileInteractionMode}
       selectedCount={selectedCount}
       canUndo={undoStackRef.current.length > 0}
       canRedo={redoStackRef.current.length > 0}
       showMaskOverlay={showMaskOverlay}
-      showCropSubmit={showCropSubmit}
+      showCropSubmit={showCropSubmit && (!_touchOptimized || mobileCropMode)}
       onAddMask={addMask}
       onRemoveSelected={removeSelectedMask}
       onUndo={() => void undo()}
       onRedo={() => void redo()}
-      onScrollUp={() => scrollViewport(-250)}
-      onScrollDown={() => scrollViewport(250)}
+      onSetMobileInteractionMode={setMobileInteractionMode}
       onToggleMaskOverlay={() => setShowMaskOverlay((current) => !current)}
       onSubmitCrop={() => void onCropCommit(localCrop)}
       onReset={() => setResetConfirmOpen(true)}
@@ -1329,7 +1412,12 @@ export function ImageEditor({
         ref={editorViewportRef}
         className={cn(
           'relative rounded-2xl border border-border bg-[radial-gradient(circle_at_top,_rgba(255,202,117,0.14),_transparent_42%),linear-gradient(180deg,rgba(10,14,18,0.06),transparent_30%)] p-4',
-          _touchOptimized ? 'overflow-y-auto overflow-x-hidden scrollbar-hide [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden touch-none' : 'overflow-hidden touch-none',
+          _touchOptimized
+            ? cn(
+                'overflow-y-auto overflow-x-hidden scrollbar-hide [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden',
+                selectionModeActive || mobileCropMode || mobileSortMode ? 'touch-none' : '[touch-action:pinch-zoom]',
+              )
+            : 'overflow-hidden touch-none',
           focusLayout && 'min-h-0 flex flex-1 p-2',
         )}
         onPointerEnter={() => setPointerInsideEditor(true)}
@@ -1339,15 +1427,43 @@ export function ImageEditor({
         }}
       >
         {useModernUI && !_touchOptimized && focusLayout ? modernToolbarElement : null}
+        {_touchOptimized && showViewportScrollButtons ? (
+          <>
+            <div className="pointer-events-none absolute right-2 top-2 z-[45] flex justify-end">
+              <Button
+                type="button"
+                variant="secondary"
+                size="icon"
+                className="pointer-events-auto size-8 rounded-full border border-border/55 bg-background/80 text-muted-foreground shadow-sm backdrop-blur-sm"
+                onPointerDown={(event) => event.stopPropagation()}
+                onClick={() => scrollViewport(-250)}
+              >
+                <ChevronUpIcon className="size-4" />
+                <span className="sr-only">向上滚动图片</span>
+              </Button>
+            </div>
+            <div className="pointer-events-none absolute right-2 bottom-2 z-[45] flex justify-end">
+              <Button
+                type="button"
+                variant="secondary"
+                size="icon"
+                className="pointer-events-auto size-8 rounded-full border border-border/55 bg-background/80 text-muted-foreground shadow-sm backdrop-blur-sm"
+                onPointerDown={(event) => event.stopPropagation()}
+                onClick={() => scrollViewport(250)}
+              >
+                <ChevronDownIcon className="size-4" />
+                <span className="sr-only">向下滚动图片</span>
+              </Button>
+            </div>
+          </>
+        ) : null}
         <div
           className={cn(
             'flex justify-center',
             focusLayout &&
               (_touchOptimized
-                ? 'w-full items-start'
-                : shouldShrinkFocusCanvas
-                  ? 'w-fit max-w-full mx-auto items-start'
-                  : 'min-h-full min-w-full m-auto items-center'),
+                ? 'w-full flex-1 items-start'
+                : 'w-full min-h-full flex-1 items-center justify-center'),
           )}
         >
           <div
@@ -1405,6 +1521,10 @@ export function ImageEditor({
                 className="absolute inset-0"
                 onPointerDown={(event) => {
                   if (readOnly) return
+                  if (_touchOptimized && mobileSortMode) {
+                    beginOrderTrace(event, true)
+                    return
+                  }
                   if (event.button === 1) {
                     beginOrderTrace(event)
                     return
@@ -1435,28 +1555,30 @@ export function ImageEditor({
                     </div>
                   ))}
 
-                <div
-                  className="pointer-events-none absolute rounded-xl border-2 border-dashed border-amber-400/90 bg-amber-300/10"
-                  style={toStyle(localCrop, imageWidth, imageHeight)}
-                >
-                    <div className="absolute top-full mt-1 left-0 rounded-sm bg-amber-950/90 px-1.5 py-0.5 text-[10px] leading-none font-medium text-amber-100">
+                {cropModeActive ? (
+                  <div
+                    className="pointer-events-none absolute rounded-xl border-2 border-dashed border-amber-400/90 bg-amber-300/10"
+                    style={toStyle(localCrop, imageWidth, imageHeight)}
+                  >
+                    <div className="absolute top-[98%] mb-4 left-0 rounded-sm bg-amber-950/90 px-1.5 py-0.5 text-[10px] leading-none font-medium text-amber-100">
                       裁切框
                     </div>
-                  {!readOnly ? (
-                    <div className="pointer-events-auto">
-                      {(['n', 's', 'e', 'w', 'nw', 'ne', 'sw', 'se'] as const).map((handle) =>
-                        <Fragment key={`crop-hotzone-${handle}`}>
-                          {makeResizeHotzone(handle, (event, selectedHandle) => beginCropDrag(event, 'crop-resize', selectedHandle))}
-                        </Fragment>,
-                      )}
-                      {(['nw', 'ne', 'sw', 'se'] as const).map((handle) =>
-                        <Fragment key={`crop-handle-${handle}`}>
-                          {makeHandle(handle, (event, selectedHandle) => beginCropDrag(event, 'crop-resize', selectedHandle))}
-                        </Fragment>,
-                      )}
-                    </div>
-                  ) : null}
-                </div>
+                    {!readOnly ? (
+                      <div className="pointer-events-auto">
+                        {(['n', 's', 'e', 'w', 'nw', 'ne', 'sw', 'se'] as const).map((handle) =>
+                          <Fragment key={`crop-hotzone-${handle}`}>
+                            {makeResizeHotzone(handle, (event, selectedHandle) => beginCropDrag(event, 'crop-resize', selectedHandle))}
+                          </Fragment>,
+                        )}
+                        {(['nw', 'ne', 'sw', 'se'] as const).map((handle) =>
+                          <Fragment key={`crop-handle-${handle}`}>
+                            {makeHandle(handle, (event, selectedHandle) => beginCropDrag(event, 'crop-resize', selectedHandle))}
+                          </Fragment>,
+                        )}
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
 
                 {showMaskOverlay &&
                   localMasks.map((mask) => {
@@ -1465,7 +1587,7 @@ export function ImageEditor({
                       !readOnly &&
                       ((isSelected && selectedMaskIds.length === 1) || (!selectedMaskIds.length && hoveredMaskId === mask.id))
                     return (
-                      <div
+                      <motion.div
                         key={mask.id}
                         className={cn(
                           'absolute rounded-sm border transition-colors',
@@ -1478,8 +1600,19 @@ export function ImageEditor({
                           isSelected && hoveredMaskId === mask.id && 'bg-amber-400/15',
                         )}
                         style={toStyle(mask.bbox, imageWidth, imageHeight)}
+                        animate={
+                          mergeBouncedMaskIds.includes(mask.id)
+                            ? { scale: [1, 1.06, 0.97, 1] }
+                            : { scale: 1 }
+                        }
+                        transition={
+                          mergeBouncedMaskIds.includes(mask.id)
+                            ? { duration: 0.46, ease: [0.34, 1.56, 0.64, 1], times: [0, 0.28, 0.62, 1] }
+                            : { duration: 0.16, ease: [0.22, 1, 0.36, 1] }
+                        }
                         onPointerDown={(event) => beginMaskMove(event, mask)}
                         onContextMenu={(event) => {
+                          if (_touchOptimized && !allowLongPressDelete) return
                           event.preventDefault()
                           event.stopPropagation()
                           void removeMasksByIds([mask.id])
@@ -1512,11 +1645,11 @@ export function ImageEditor({
                               )}
                             </>
                           )}
-                      </div>
+                      </motion.div>
                     )
                   })}
 
-                {selectedGroupBox && selectedMaskIds.length > 1 && !readOnly ? (
+                {selectedGroupBox && selectedMaskIds.length > 1 && !readOnly && (!_touchOptimized || mobileSelectMode) ? (
                   <div
                     className="pointer-events-none absolute rounded-md border border-amber-500/70 border-dashed"
                     style={toStyle(selectedGroupBox, imageWidth, imageHeight)}

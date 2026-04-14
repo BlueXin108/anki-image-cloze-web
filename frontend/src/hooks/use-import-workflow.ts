@@ -141,7 +141,7 @@ export function useImportWorkflow({
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const fileManagerInputRef = useRef<HTMLInputElement | null>(null)
   const folderInputRef = useRef<HTMLInputElement | null>(null)
-  const [hugeImportPrompt, setHugeImportPrompt] = useState<{ open: boolean; files: FileList | File[] | null; label: string }>({
+  const [hugeImportPrompt, setHugeImportPrompt] = useState<{ open: boolean; files: File[] | null; label: string }>({
     open: false,
     files: null,
     label: '',
@@ -171,6 +171,8 @@ export function useImportWorkflow({
     updateStatusTask('files', { state: 'running', progress: 5, detail: `正在整理 ${sourceLabel} 里的图片。` })
 
     try {
+      const failedFiles: { fileName: string; message: string }[] = []
+
       if (heifFiles.length > 0) {
         toast.info('检测到 HEIF 图片', {
           description: '这类图片不推荐直接编辑，转换通常需要 1 到 5 秒。会先让常规图片进入项目，再在后台继续转换 HEIF。',
@@ -184,6 +186,9 @@ export function useImportWorkflow({
 
       const items = await buildDraftItemsFromFiles(regularFiles, {
         settings: workbenchSettings,
+        onFileFailure: (failure) => {
+          failedFiles.push(failure)
+        },
         onProgress: ({ completed, total, fileName, percent, stageLabel }) => {
           setImportProgress({
             percent,
@@ -203,7 +208,9 @@ export function useImportWorkflow({
       if (items.length === 0 && heifFiles.length === 0) {
         updateStatusTask('files', { state: 'error', progress: 100, detail: '没有找到可用的图片文件。' })
         toast.dismiss(loadingToastId)
-        toast.error('没有找到可导入的图片', { description: '支持 png、jpg、jpeg、webp、bmp、gif、heif、heic。' })
+        toast.error('没有成功导入任何图片', {
+          description: failedFiles[0]?.message ?? '支持 png、jpg、jpeg、webp、bmp、gif、heif、heic。',
+        })
         return
       }
 
@@ -242,6 +249,15 @@ export function useImportWorkflow({
             addedCount === items.length
               ? `本次带入 ${items.length} 张图片。`
               : `新带入 ${addedCount} 张图片，跳过了 ${items.length - addedCount} 张重复图片。`,
+        })
+      }
+
+      if (failedFiles.length > 0) {
+        toast.error('有部分图片没能导入', {
+          description:
+            failedFiles.length === 1
+              ? `${failedFiles[0]?.fileName ?? '其中 1 张图片'} 处理失败：${failedFiles[0]?.message ?? '请重试或换个格式。'}`
+              : `共有 ${failedFiles.length} 张图片处理失败，其余图片已经先加入项目。`,
         })
       }
 
@@ -305,10 +321,12 @@ export function useImportWorkflow({
   }
 
   const safeIngestFiles = async (files: FileList | File[], label: string) => {
-    if (files.length > 20) {
-      setHugeImportPrompt({ open: true, files, label })
+    const normalizedFiles = Array.from(files)
+
+    if (normalizedFiles.length > 20) {
+      setHugeImportPrompt({ open: true, files: normalizedFiles, label })
     } else {
-      await ingestFiles(files, label)
+      await ingestFiles(normalizedFiles, label)
     }
   }
 

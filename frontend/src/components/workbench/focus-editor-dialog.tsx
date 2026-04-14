@@ -1,14 +1,15 @@
 import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { ChevronLeftIcon, ChevronRightIcon } from 'lucide-react'
+import { ChevronLeftIcon, ChevronRightIcon, Settings2Icon } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { cn } from '@/lib/utils'
-import type { DraftListItem } from '@/types'
+import type { DraftListItem, WorkbenchSettings } from '@/types'
 import { ImageEditor } from '@/components/editor/image-editor'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogClose } from '@/components/ui/dialog'
 import { XIcon } from "lucide-react"
 import { Kbd } from '@/components/ui/kbd'
+import { WorkbenchSettingsDialog } from '@/components/workbench/workbench-settings-dialog'
 
 interface FocusEditorDialogProps {
   open: boolean
@@ -30,6 +31,8 @@ interface FocusEditorDialogProps {
   overlayClassName?: string
   contentClassName?: string
   modernFloatingToolbar?: boolean
+  workbenchSettings: WorkbenchSettings
+  onWorkbenchSettingsChange: (settings: WorkbenchSettings) => void
 }
 
 const focusShortcuts = [
@@ -55,7 +58,7 @@ export function FocusEditorDialog({
   onMasksCommit,
   onCropCommit,
   title = '聚焦编辑',
-  description = '这里适合放大图片后精细调整裁剪和遮罩。',
+  description = '使用光标或快捷键进行编辑',
   onPreviousItem,
   onNextItem,
   canGoPrevious = false,
@@ -67,9 +70,12 @@ export function FocusEditorDialog({
   overlayClassName,
   contentClassName,
   modernFloatingToolbar,
+  workbenchSettings,
+  onWorkbenchSettingsChange,
 }: FocusEditorDialogProps) {
   const [mounted, setMounted] = useState(false)
   const [mobileSessionKey, setMobileSessionKey] = useState(0)
+  const [mobileSettingsOpen, setMobileSettingsOpen] = useState(false)
 
   useEffect(() => {
     setMounted(true)
@@ -138,34 +144,51 @@ export function FocusEditorDialog({
              touchOptimized ? "rounded-[2rem] pt-2" : "rounded-[2rem] py-2 pb-10"
            )}
         >
-        <DialogHeader className={cn("relative border-b border-border/60", touchOptimized ? "px-4 py-2 pr-12" : "px-6 py-4 pr-12")}>
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div className="space-y-1">
-              <DialogTitle className={cn(touchOptimized && "text-[15px]")}>{title}</DialogTitle>
-              {!touchOptimized && <DialogDescription className={cn(touchOptimized && "text-[11px]")}>{description}</DialogDescription>}
-            </div>
-            <div className={cn("flex flex-wrap items-center gap-2 text-muted-foreground", touchOptimized ? "text-[10px]" : "text-xs")}>
-              <span>{cardCount} 张卡片</span>
-              {touchOptimized ? (
+        <DialogHeader className={cn("border-b border-border/60", touchOptimized ? "px-3 py-2.5" : "px-6 py-4")}>
+          <div className="flex items-center gap-2.5 sm:gap-3 overflow-hidden">
+            <DialogTitle className={cn("shrink-0", touchOptimized && "ml-2 text-[15px] mr-2")}>{title}</DialogTitle>
+            
+            <div className={cn("flex flex-1 items-center gap-1.5 sm:gap-2 text-muted-foreground overflow-hidden whitespace-nowrap", touchOptimized ? "text-[10px]" : "text-xs")}>
+              {!touchOptimized && description && (
                 <>
-                  <span className="opacity-50">|</span>
-                  <span className="text-primary/70 font-medium">支持双指缩放编辑与两侧切图</span>
+                  <DialogDescription className="shrink-0 truncate">{description}</DialogDescription>
+                  <span className="shrink-0 opacity-50">|</span>
                 </>
+              )}
+              <span className="shrink-0">{cardCount} 张卡片</span>
+              <span className="shrink-0 opacity-50">|</span>
+              {touchOptimized ? (
+                <span className="text-primary/70 font-medium truncate">支持双指缩放编辑与两侧切图</span>
               ) : (canGoPrevious || canGoNext) ? (
-                <span>A / D 可快速切图</span>
+                <span className="truncate">A / D 可快速切图</span>
               ) : null}
             </div>
+
+            <div className="flex flex-shrink-0 items-center gap-0.5 sm:gap-1 pl-2 border-l">
+              {touchOptimized ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-sm"
+                  className="rounded-full size-7"
+                  onClick={() => setMobileSettingsOpen(true)}
+                >
+                  <Settings2Icon className="size-4" />
+                  <span className="sr-only">编辑设置</span>
+                </Button>
+              ) : null}
+              <DialogClose asChild>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-sm"
+                  className={cn("rounded-full", touchOptimized ? "size-7" : "size-8")}
+                >
+                  <XIcon className="size-4" />
+                </Button>
+              </DialogClose>
+            </div>
           </div>
-          <DialogClose asChild>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon-sm"
-              className={cn("absolute right-2 top-2 rounded-full", touchOptimized ? "size-6" : "size-8")}
-            >
-              <XIcon className="size-4" />
-            </Button>
-          </DialogClose>
         </DialogHeader>
         <div className={cn("relative min-h-0 overflow-hidden flex flex-col flex-1", touchOptimized ? "px-2 py-2" : "px-4 py-3 md:px-5 md:py-4")}>
           {canGoPrevious ? (
@@ -227,6 +250,7 @@ export function FocusEditorDialog({
                 onNextItem={onNextItem}
                 canGoPrevious={canGoPrevious}
                 canGoNext={canGoNext}
+                allowLongPressDelete={workbenchSettings.mobileLongPressDeleteMask}
                 modernFloatingToolbar={modernFloatingToolbar}
               />
             </motion.div>
@@ -241,6 +265,16 @@ export function FocusEditorDialog({
         )}
         </motion.div>
       </DialogContent>
+      {touchOptimized ? (
+        <WorkbenchSettingsDialog
+          open={mobileSettingsOpen}
+          onOpenChange={setMobileSettingsOpen}
+          settings={workbenchSettings}
+          onSettingsChange={onWorkbenchSettingsChange}
+          showTrigger={false}
+          scope="focus-mobile"
+        />
+      ) : null}
     </Dialog>
   )
 }

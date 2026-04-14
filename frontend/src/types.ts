@@ -87,6 +87,7 @@ export interface WorkbenchSettings {
   cardGenerationMode: CardGenerationMode
   disableAnimations: boolean
   modernFloatingToolbar: boolean
+  mobileLongPressDeleteMask: boolean
 }
 
 export interface PersistedDraftListItem {

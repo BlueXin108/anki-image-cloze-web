@@ -63,7 +63,7 @@ export function InlineEmphasis({
     return (
       <Popover>
         <PopoverTrigger asChild>{trigger}</PopoverTrigger>
-        <PopoverContent align="center" className={cn('w-64 rounded-xl text-sm leading-6', hintClassName)}>
+        <PopoverContent align="center" className={cn('w-64 rounded-xl text-xs leading-6', hintClassName)}>
           {hint}
         </PopoverContent>
       </Popover>
@@ -74,7 +74,7 @@ export function InlineEmphasis({
     <TooltipProvider delayDuration={120}>
       <Tooltip>
         <TooltipTrigger asChild>{trigger}</TooltipTrigger>
-        <TooltipContent side="top" className={cn('max-w-72 text-sm leading-6', hintClassName)}>
+        <TooltipContent side="top" className={cn('max-w-72 text-xs leading-6', hintClassName)}>
           {hint}
         </TooltipContent>
       </Tooltip>

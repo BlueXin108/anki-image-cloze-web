@@ -193,7 +193,7 @@ export const ManualDraftList = memo(function ManualDraftList({ items, selectedDr
                       ) : null}
                     </div>
 
-                    <div className="ml-2.5 flex min-w-0 flex-1 flex-col justify-center space-y-1 py-0.5">
+                    <div className="ml-2.5 flex z-20 min-w-0 flex-1 flex-col justify-center space-y-1 py-0.5">
                       <div className="max-w-full truncate text-[13px] font-medium leading-tight text-foreground/90" title={item.image.source_path}>
                         {truncateFileName(item.image.source_path, 28)}
                       </div>

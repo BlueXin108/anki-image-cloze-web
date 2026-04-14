@@ -89,6 +89,10 @@ interface WorkbenchHeaderProps {
 	showModeTabs?: boolean;
 	projectCompressionState?: "original" | "compressed" | "mixed" | "none";
 	projectCompressionCount?: number;
+	uploadTriggerPending?: boolean;
+	folderTriggerPending?: boolean;
+	fileManagerTriggerPending?: boolean;
+	cameraTriggerPending?: boolean;
 }
 
 // --- 图标组件 ---
@@ -233,6 +237,10 @@ export const WorkbenchHeader = memo(function WorkbenchHeader({
 	showModeTabs = true,
 	projectCompressionState = "none",
 	projectCompressionCount = 0,
+	uploadTriggerPending = false,
+	folderTriggerPending = false,
+	fileManagerTriggerPending = false,
+	cameraTriggerPending = false,
 }: WorkbenchHeaderProps) {
 	const [guideOpen, setGuideOpen] = useState(false);
 	const [ankiHelpRequested, setAnkiHelpRequested] = useState(false);
@@ -354,12 +362,12 @@ export const WorkbenchHeader = memo(function WorkbenchHeader({
 					<div className="flex items-start gap-3">
 						<MainIcon />
 						<div className="min-w-0">
-							<div className="flex flex-wrap items-center gap-2">
+							<div className="flex flex-wrap items-center gap-0">
 								<motion.h3 
 									layoutId="header-title"
 									initial={false}
 									transition={sharedLayoutTransition}
-									className="relative z-50 text-lg font-semibold tracking-tight md:text-lg text-foreground mr-2"
+									className="relative z-50 text-lg font-semibold tracking-tight md:text-lg text-foreground mr-4"
 								>
 									Anki-图像遮罩工具
 								</motion.h3>
@@ -544,7 +552,7 @@ export const WorkbenchHeader = memo(function WorkbenchHeader({
 									size="default"
 									className="trs-all-400 h-10 min-w-0 rounded-xl px-3 sm:px-4 border border-transparent outline-0 hover:-translate-y-0.5 active:scale-[0.98] hover:bg-foreground/80 hover:text-secondary hover:border-border shadow-none"
 									onClick={onUploadImages}>
-									<UploadIcon className="size-4" data-icon="inline-start" />
+									{uploadTriggerPending ? <Spinner className="size-4" data-icon="inline-start" /> : <UploadIcon className="size-4" data-icon="inline-start" />}
 									系统相册
 								</Button>
 								<div className={cn('grid gap-2', onCapturePhoto ? 'grid-cols-2' : 'grid-cols-1')}>
@@ -552,18 +560,18 @@ export const WorkbenchHeader = memo(function WorkbenchHeader({
 										<Button
 											size="default"
 											variant="secondary"
-											className="trs-all-400 h-10 min-w-0 rounded-xl px-3 sm:px-4 border border-transparent text-muted-foreground hover:-translate-y-0.5 active:scale-[0.98] hover:bg-foreground hover:text-background hover:border-border"
-											onClick={onCapturePhoto}>
-											<CameraIcon className="size-4" data-icon="inline-start" />
+										className="trs-all-400 h-10 min-w-0 rounded-xl px-3 sm:px-4 border border-transparent text-muted-foreground hover:-translate-y-0.5 active:scale-[0.98] hover:bg-foreground hover:text-background hover:border-border"
+										onClick={onCapturePhoto}>
+											{cameraTriggerPending ? <Spinner className="size-4" data-icon="inline-start" /> : <CameraIcon className="size-4" data-icon="inline-start" />}
 											拍摄
 										</Button>
 									) : null}
 									<Button
 										size="default"
 										variant="secondary"
-										className="trs-all-400 h-10 min-w-0 rounded-xl px-3 sm:px-4 border border-transparent text-muted-foreground hover:-translate-y-0.5 active:scale-[0.98] hover:bg-foreground hover:text-background hover:border-border"
+										className="trs-all-400 h-10 min-w-0 rounded-xl px-3 sm:px-4 border border-transparent text-muted-foreground hover:-translate-y-0.5 active:scale-[0.98] hover:bg-foreground hover:text-background hover:border-border shadow-none bg-background brightness-110"
 										onClick={onImportFiles ?? onUploadImages}>
-										<FolderUpIcon className="size-4" data-icon="inline-start" />
+										{fileManagerTriggerPending ? <Spinner className="size-4" data-icon="inline-start" /> : <FolderUpIcon className="size-4" data-icon="inline-start" />}
 										文件管理器
 									</Button>
 								</div>
@@ -573,9 +581,9 @@ export const WorkbenchHeader = memo(function WorkbenchHeader({
 								<motion.div layoutId="btn-upload" transition={sharedLayoutTransition}>
 									<Button
 										size="default"
-										className="trs-all-400 h-10 w-full min-w-0 rounded-xl px-3 sm:px-4 border border-transparent hover:-translate-y-0.5 active:scale-[0.98] hover:bg-background hover:text-primary hover:border-border"
-										onClick={onUploadImages}>
-										<UploadIcon className="size-4" data-icon="inline-start" />
+									className="trs-all-400 h-10 w-full min-w-0 rounded-xl px-3 sm:px-4 border border-transparent hover:-translate-y-0.5 active:scale-[0.98] hover:bg-background hover:text-primary hover:border-border"
+									onClick={onUploadImages}>
+										{uploadTriggerPending ? <Spinner className="size-6" data-icon="inline-start" /> : <UploadIcon className="size-4" data-icon="inline-start" />}
 										上传图片
 									</Button>
 								</motion.div>
@@ -583,9 +591,9 @@ export const WorkbenchHeader = memo(function WorkbenchHeader({
 									<Button
 										size="default"
 										variant="secondary"
-										className="trs-all-400 h-10 w-full min-w-0 rounded-xl px-3 sm:px-4 border border-transparent hover:-translate-y-0.5 active:scale-[0.98] hover:bg-foreground hover:text-background hover:border-border"
-										onClick={onImportFolder}>
-										<FolderUpIcon className="size-4" data-icon="inline-start" />
+									className="trs-all-400 h-10 w-full min-w-0 rounded-xl px-3 sm:px-4 border border-transparent hover:-translate-y-0.5 active:scale-[0.98] hover:bg-foreground hover:text-background hover:border-border shadow-none"
+									onClick={onImportFolder}>
+										{folderTriggerPending ? <Spinner className="size-6" data-icon="inline-start" /> : <FolderUpIcon className="size-4" data-icon="inline-start" />}
 										导入文件夹
 									</Button>
 								</motion.div>

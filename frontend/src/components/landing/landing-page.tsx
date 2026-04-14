@@ -1,6 +1,6 @@
 import { motion, AnimatePresence, type Transition } from 'framer-motion'
 import { CameraIcon, FolderUpIcon, RotateCcwIcon, UploadCloudIcon, UploadIcon } from 'lucide-react'
-import { useRef, useState, type ChangeEvent } from 'react'
+import { useEffect, useRef, useState, type ChangeEvent } from 'react'
 
 import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/spinner'
@@ -37,6 +37,7 @@ const AnkiIcon = ({ className }: { className?: string }) => (
 
 const introEase = [0.54, 0, 0, 0.99] as const
 const introOutEase = [0, 0.43, 0, 0.99] as const
+const PICKER_SPINNER_RESET_MS = 180
 
 function introTransition(delay: number, duration = 1): Transition {
   return {
@@ -77,6 +78,7 @@ export function LandingPage({
   onImportFiles,
 }: LandingPageProps) {
   const [isDragActive, setIsDragActive] = useState(false)
+  const [pendingTrigger, setPendingTrigger] = useState<'upload' | 'folder' | 'file-manager' | 'camera' | null>(null)
   const dragCounterRef = useRef(0)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const folderInputRef = useRef<HTMLInputElement>(null)
@@ -185,6 +187,34 @@ export function LandingPage({
     event.target.value = ''
   }
 
+  useEffect(() => {
+    if (isImporting) {
+      setPendingTrigger(null)
+    }
+  }, [isImporting])
+
+  useEffect(() => {
+    if (!pendingTrigger || typeof window === 'undefined') return
+
+    const scheduleClearPending = () => {
+      if (!isImporting) {
+        window.setTimeout(() => {
+          setPendingTrigger((current) => (current ? null : current))
+        }, PICKER_SPINNER_RESET_MS)
+      }
+    }
+
+    window.addEventListener('focus', scheduleClearPending, { once: true })
+    return () => {
+      window.removeEventListener('focus', scheduleClearPending)
+    }
+  }, [pendingTrigger, isImporting])
+
+  const triggerPicker = (kind: 'upload' | 'folder' | 'file-manager' | 'camera', action: () => void) => {
+    setPendingTrigger(kind)
+    action()
+  }
+
   return (
     <div 
       className="relative isolate h-[100svh] min-h-[100svh] flex flex-col items-center justify-center overflow-hidden px-5 py-6 text-center select-none sm:p-6"
@@ -260,10 +290,10 @@ export function LandingPage({
             <Button 
               size="lg" 
               className="shadow-none group h-12 w-full rounded-2xl gap-3 text-base  shadow-primary/20 transition-all active:scale-[0.98] hover:shadow-primary/30 sm:h-14 sm:px-8 sm:text-lg"
-              onClick={() => fileInputRef.current?.click()}
+              onClick={() => triggerPicker('upload', () => fileInputRef.current?.click())}
               disabled={isImporting}
             >
-              {isImporting ? <Spinner className="size-5" /> : <UploadIcon className="size-5 transition-transform group-hover:-translate-y-0.5" />}
+              {isImporting || pendingTrigger === 'upload' ? <Spinner className="size-5" /> : <UploadIcon className="size-5 transition-transform group-hover:-translate-y-0.5" />}
               上传图片
             </Button>
           </motion.div>
@@ -280,10 +310,10 @@ export function LandingPage({
                     variant="secondary"
                     size="lg"
                     className="shadow-none group h-12 w-full rounded-2xl gap-3 text-base bg-background/50 backdrop-blur-sm border-border/50 transition-all active:scale-[0.98] hover:bg-background/80"
-                    onClick={onCapturePhoto}
+                    onClick={() => onCapturePhoto && triggerPicker('camera', onCapturePhoto)}
                     disabled={isImporting}
                   >
-                    {isImporting ? <Spinner className="size-5" /> : <CameraIcon className="size-5 transition-transform group-hover:-translate-y-0.5" />}
+                    {isImporting || pendingTrigger === 'camera' ? <Spinner className="size-5" /> : <CameraIcon className="size-5 transition-transform group-hover:-translate-y-0.5" />}
                     拍摄
                   </Button>
                 </motion.div>
@@ -300,14 +330,14 @@ export function LandingPage({
                   className="shadow-none group h-12 w-full rounded-2xl gap-3 text-base bg-background/50 backdrop-blur-sm border-border/50 transition-all active:scale-[0.98] hover:bg-background/80"
                   onClick={() => {
                     if (onImportFiles) {
-                      onImportFiles()
+                      triggerPicker('file-manager', onImportFiles)
                       return
                     }
-                    fileInputRef.current?.click()
+                    triggerPicker('upload', () => fileInputRef.current?.click())
                   }}
                   disabled={isImporting}
                 >
-                  {isImporting ? <Spinner className="size-5" /> : <FolderUpIcon className="size-5 transition-transform group-hover:-translate-y-0.5" />}
+                  {isImporting || pendingTrigger === 'file-manager' || pendingTrigger === 'upload' ? <Spinner className="size-5" /> : <FolderUpIcon className="size-5 transition-transform group-hover:-translate-y-0.5" />}
                   文件管理器
                 </Button>
               </motion.div>
@@ -325,10 +355,10 @@ export function LandingPage({
                 variant="secondary" 
                 size="lg" 
                 className="shadow-none group h-12 w-full rounded-2xl gap-3 text-base bg-background/50 backdrop-blur-sm border-border/50 transition-all active:scale-[0.98] hover:bg-background/80 sm:h-14 sm:px-8 sm:text-lg"
-                onClick={() => folderInputRef.current?.click()}
+                onClick={() => triggerPicker('folder', () => folderInputRef.current?.click())}
                 disabled={isImporting}
               >
-                {isImporting ? <Spinner className="size-5" /> : <FolderUpIcon className="size-5 transition-transform group-hover:-translate-y-0.5" />}
+                {isImporting || pendingTrigger === 'folder' ? <Spinner className="size-5" /> : <FolderUpIcon className="size-5 transition-transform group-hover:-translate-y-0.5" />}
                 导入文件夹
               </Button>
             </motion.div>
