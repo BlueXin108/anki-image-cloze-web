@@ -1350,7 +1350,14 @@ export function ImageEditor({
   ) : null
 
   return (
-    <div className={cn('flex flex-col gap-4', focusLayout && 'h-full min-h-0 overflow-hidden')}>
+    <div
+      className={cn('flex flex-col gap-4', focusLayout && 'h-full min-h-0 overflow-hidden')}
+      onContextMenuCapture={(event) => {
+        if (!_touchOptimized) return
+        event.preventDefault()
+      }}
+      style={_touchOptimized ? { WebkitTouchCallout: 'none' } : undefined}
+    >
       {useModernUI && !_touchOptimized && !focusLayout ? (
         <div className="flex shrink-0 w-full justify-center">{modernToolbarElement}</div>
       ) : null}
@@ -1408,56 +1415,27 @@ export function ImageEditor({
         </div>
       ) : null}
 
-      <div
-        ref={editorViewportRef}
-        className={cn(
-          'relative rounded-2xl border border-border bg-[radial-gradient(circle_at_top,_rgba(255,202,117,0.14),_transparent_42%),linear-gradient(180deg,rgba(10,14,18,0.06),transparent_30%)] p-4',
-          _touchOptimized
-            ? cn(
-                'overflow-y-auto overflow-x-hidden scrollbar-hide [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden',
-                selectionModeActive || mobileCropMode || mobileSortMode ? 'touch-none' : '[touch-action:pinch-zoom]',
-              )
-            : 'overflow-hidden touch-none',
-          focusLayout && 'min-h-0 flex flex-1 p-2',
-        )}
-        onPointerEnter={() => setPointerInsideEditor(true)}
-        onPointerLeave={() => {
-          setPointerInsideEditor(false)
-          setHoveredMaskId(null)
-        }}
-      >
-        {useModernUI && !_touchOptimized && focusLayout ? modernToolbarElement : null}
-        {_touchOptimized && showViewportScrollButtons ? (
-          <>
-            <div className="pointer-events-none absolute right-2 top-2 z-[45] flex justify-end">
-              <Button
-                type="button"
-                variant="secondary"
-                size="icon"
-                className="pointer-events-auto size-8 rounded-full border border-border/55 bg-background/80 text-muted-foreground shadow-sm backdrop-blur-sm"
-                onPointerDown={(event) => event.stopPropagation()}
-                onClick={() => scrollViewport(-250)}
-              >
-                <ChevronUpIcon className="size-4" />
-                <span className="sr-only">向上滚动图片</span>
-              </Button>
-            </div>
-            <div className="pointer-events-none absolute right-2 bottom-2 z-[45] flex justify-end">
-              <Button
-                type="button"
-                variant="secondary"
-                size="icon"
-                className="pointer-events-auto size-8 rounded-full border border-border/55 bg-background/80 text-muted-foreground shadow-sm backdrop-blur-sm"
-                onPointerDown={(event) => event.stopPropagation()}
-                onClick={() => scrollViewport(250)}
-              >
-                <ChevronDownIcon className="size-4" />
-                <span className="sr-only">向下滚动图片</span>
-              </Button>
-            </div>
-          </>
-        ) : null}
+      <div className={cn('relative', focusLayout && 'min-h-0 flex flex-1')}>
         <div
+          ref={editorViewportRef}
+          className={cn(
+            'relative rounded-2xl border border-border bg-[radial-gradient(circle_at_top,_rgba(255,202,117,0.14),_transparent_42%),linear-gradient(180deg,rgba(10,14,18,0.06),transparent_30%)] p-4',
+            _touchOptimized
+              ? cn(
+                  'overflow-y-auto overflow-x-hidden scrollbar-hide [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden',
+                  selectionModeActive || mobileCropMode || mobileSortMode ? 'touch-none' : '[touch-action:pinch-zoom]',
+                )
+              : 'overflow-hidden touch-none',
+            focusLayout && 'min-h-0 flex flex-1 p-2',
+          )}
+          onPointerEnter={() => setPointerInsideEditor(true)}
+          onPointerLeave={() => {
+            setPointerInsideEditor(false)
+            setHoveredMaskId(null)
+          }}
+        >
+          {useModernUI && !_touchOptimized && focusLayout ? modernToolbarElement : null}
+          <div
           className={cn(
             'flex justify-center',
             focusLayout &&
@@ -1733,7 +1711,38 @@ export function ImageEditor({
               </div>
             </div>
           </div>
+          </div>
         </div>
+        {_touchOptimized && showViewportScrollButtons ? (
+          <>
+            <div className="pointer-events-none absolute right-2 top-2 z-[45] flex justify-end">
+              <Button
+                type="button"
+                variant="secondary"
+                size="icon"
+                className="pointer-events-auto size-8 rounded-full border border-border/55 bg-background/80 text-muted-foreground shadow-sm backdrop-blur-sm"
+                onPointerDown={(event) => event.stopPropagation()}
+                onClick={() => scrollViewport(-250)}
+              >
+                <ChevronUpIcon className="size-4" />
+                <span className="sr-only">向上滚动图片</span>
+              </Button>
+            </div>
+            <div className="pointer-events-none absolute right-2 bottom-2 z-[45] flex justify-end">
+              <Button
+                type="button"
+                variant="secondary"
+                size="icon"
+                className="pointer-events-auto size-8 rounded-full border border-border/55 bg-background/80 text-muted-foreground shadow-sm backdrop-blur-sm"
+                onPointerDown={(event) => event.stopPropagation()}
+                onClick={() => scrollViewport(250)}
+              >
+                <ChevronDownIcon className="size-4" />
+                <span className="sr-only">向下滚动图片</span>
+              </Button>
+            </div>
+          </>
+        ) : null}
       </div>
       
       {useModernUI && _touchOptimized ? (

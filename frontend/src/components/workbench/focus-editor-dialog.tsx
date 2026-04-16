@@ -143,6 +143,11 @@ export function FocusEditorDialog({
              "flex h-full w-full flex-col gap-0 overflow-hidden border border-border/70 bg-background/95 shadow-2xl",
              touchOptimized ? "rounded-[2rem] pt-2" : "rounded-[2rem] py-2 pb-10"
            )}
+           onContextMenu={(event) => {
+             if (!touchOptimized) return
+             event.preventDefault()
+           }}
+           style={touchOptimized ? { WebkitTouchCallout: 'none' } : undefined}
         >
         <DialogHeader className={cn("border-b border-border/60", touchOptimized ? "px-3 py-2.5" : "px-6 py-4")}>
           <div className="flex items-center gap-2.5 sm:gap-3 overflow-hidden">

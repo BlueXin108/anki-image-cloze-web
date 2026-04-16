@@ -80,7 +80,7 @@ const ENABLE_WORKSPACE_MODE_SWITCH = false
 const MOBILE_IMAGE_ACCEPT = 'image/*'
 const ANKI_HELP_PROMPT_DISMISSED_KEY = 'anki-cloze:anki-help-prompt-dismissed'
 const MANUAL_PANEL_LAYOUT_KEY = 'anki-cloze:manual-panel-layout'
-const SLOW_SAVE_THRESHOLD_MS = 60
+const SLOW_SAVE_THRESHOLD_MS = 120
 const SLOW_SAVE_REPEAT_THRESHOLD_MS = 100
 const SLOW_SAVE_REPEAT_TRIGGER_COUNT = 3
 const AUTO_OPTIMIZE_MAX_DIMENSION = DEFAULT_WORKBENCH_SETTINGS.importMaxDimension
@@ -91,6 +91,10 @@ const LANDING_BACKGROUND_UNMOUNT_DELAY_MS = 2000
 const IMPORT_TRIGGER_SPINNER_RESET_MS = 180
 const WORKBENCH_EASE_OUT = [0, 0.43, 0, 0.99] as const
 const WORKBENCH_EASE_INOUT = [0.54, 0, 0, 0.99] as const
+const MOBILE_PRIMARY_ACTION_TAP = {
+  whileTap: { scale: 0.985, y: 2.5 },
+  transition: { type: 'spring', stiffness: 520, damping: 30, mass: 0.28 },
+} as const
 
 type ProcessingProgress = ProcessingProgressView
 
@@ -314,17 +318,33 @@ export default function App() {
 
   useEffect(() => {
     if (exportModulesPrefetchedRef.current) return
+    if (exportDialogRequested) return
+    if (showLanding || workbenchIntroActive || !shouldRenderWorkbenchMain) return
     if (activeDraftItems.length === 0) return
 
-    exportModulesPrefetchedRef.current = true
+    const browserWindow = window as Window & typeof globalThis & {
+      requestIdleCallback?: (callback: IdleRequestCallback, options?: IdleRequestOptions) => number
+      cancelIdleCallback?: (handle: number) => void
+    }
+
     const warmModules = () => {
+      exportModulesPrefetchedRef.current = true
+      setExportDialogRequested(true)
       void import('@/lib/apkg-export')
       void import('@/lib/image-group-export')
     }
 
-    const idleWindow = window.setTimeout(warmModules, 1200)
-    return () => window.clearTimeout(idleWindow)
-  }, [activeDraftItems.length])
+    if (typeof browserWindow.requestIdleCallback === 'function') {
+      const idleCallbackId = browserWindow.requestIdleCallback(() => {
+        warmModules()
+      }, { timeout: 1800 })
+
+      return () => browserWindow.cancelIdleCallback?.(idleCallbackId)
+    }
+
+    const idleWindow = browserWindow.setTimeout(warmModules, 1200)
+    return () => browserWindow.clearTimeout(idleWindow)
+  }, [activeDraftItems.length, exportDialogRequested, showLanding, shouldRenderWorkbenchMain, workbenchIntroActive])
 
   const triggerImportPicker = useCallback(
     (kind: 'upload' | 'folder' | 'file-manager' | 'camera', action: () => void) => {
@@ -1308,23 +1328,28 @@ export default function App() {
                     animate="visible"
                     className={deviceProfile.isMobileLayout ? 'pointer-events-none fixed inset-x-4 bottom-4 z-50' : 'pointer-events-none fixed right-4 bottom-4 z-50'}
                   >
-                    <Button
-                      type="button"
-                      size="lg"
-                      className={deviceProfile.isMobileLayout ? 'pointer-events-auto h-12 w-full rounded-2xl shadow-lg shadow-slate-900/10 cursor-pointer overflow-hidden bg-foreground text-background hover:bg-foreground/90 active:scale-[0.98] trs-all-400' : 'pointer-events-auto rounded-full shadow-lg shadow-slate-900/10 cursor-pointer overflow-hidden bg-foreground text-background hover:h-12 hover:px-4 hover:bg-foreground/90 hover:-translate-y-0.5 active:scale-[0.98] trs-all-400'}
-                      onClick={() => {
-                        if (exportQueue.length === 0) {
-                          updateStatusTask('export', { state: 'error', progress: 100, detail: '当前还没有可以进入导出流程的图片。' })
-                        }
-                        setExportDialogRequested(true)
-                        startExportFlow()
-                      }}
-                      disabled={exportQueue.length === 0}
+                    <motion.div
+                      className={deviceProfile.isMobileLayout ? 'w-full' : 'contents'}
+                      {...(deviceProfile.isMobileLayout ? MOBILE_PRIMARY_ACTION_TAP : {})}
                     >
-                      <DownloadIcon data-icon="inline-start " />
-                      {exportButtonLabel}
-                      <span className="rounded-full bg-background/16 px-2 py-0.5 text-xs text-background">{exportQueue.length}</span>
-                    </Button>
+                      <Button
+                        type="button"
+                        size="lg"
+                        className={deviceProfile.isMobileLayout ? 'pointer-events-auto h-12 w-full rounded-2xl shadow-lg shadow-slate-900/10 cursor-pointer overflow-hidden bg-foreground text-background hover:bg-foreground/90 trs-all-400' : 'pointer-events-auto rounded-full shadow-lg shadow-slate-900/10 cursor-pointer overflow-hidden bg-foreground text-background hover:h-12 hover:px-4 hover:bg-foreground/90 hover:-translate-y-0.5 active:scale-[0.98] trs-all-400'}
+                        onClick={() => {
+                          if (exportQueue.length === 0) {
+                            updateStatusTask('export', { state: 'error', progress: 100, detail: '当前还没有可以进入导出流程的图片。' })
+                          }
+                          setExportDialogRequested(true)
+                          startExportFlow()
+                        }}
+                        disabled={exportQueue.length === 0}
+                      >
+                        <DownloadIcon data-icon="inline-start " />
+                        {exportButtonLabel}
+                        <span className="rounded-full bg-background/16 px-2 py-0.5 text-xs text-background">{exportQueue.length}</span>
+                      </Button>
+                    </motion.div>
                   </motion.div>
                 ) : null
               ) : null}

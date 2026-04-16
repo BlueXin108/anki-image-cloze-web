@@ -91,6 +91,11 @@ const EDITOR_SHORTCUTS = [
 	{key: "E", action: "删除选中"},
 ];
 
+const MOBILE_PRIMARY_ACTION_TAP = {
+	whileTap: {scale: 0.985, y: 2.5},
+	transition: {type: "spring", stiffness: 520, damping: 30, mass: 0.28},
+} as const;
+
 const PREVIEW_PANEL_HEIGHT_CLASS = "h-[320px] sm:h-[360px] lg:h-[380px]";
 
 const PreviewPanel = memo(function PreviewPanel({
@@ -634,21 +639,25 @@ export const ManualWorkspace = memo(function ManualWorkspace({
 
 									{!selectedItemPreparing ? (
 										<div className="flex justify-center items-center w-full">
-											<Button
-												variant={touchOptimized ? "default" : "outline"}
-												size={touchOptimized ? "default" : "sm"}
-												className={cn(
-													"shadow-none outline-none border-none ",
-													touchOptimized ? "h-11 w-full w-max-full" : undefined,
-												)}
-												onClick={() => setFocusMode(true)}>
-												{touchOptimized ? (
-													<SquarePenIcon data-icon="inline-start" />
-												) : (
-													<ZoomInIcon data-icon="inline-start" />
-												)}
-												{readOnlyInWorkspace ? "进入聚焦编辑" : "聚焦编辑（Q）"}
-											</Button>
+											<motion.div
+												className={cn("w-full", !touchOptimized && "contents")}
+												{...(touchOptimized ? MOBILE_PRIMARY_ACTION_TAP : {})}>
+												<Button
+													variant={touchOptimized ? "default" : "outline"}
+													size={touchOptimized ? "default" : "sm"}
+													className={cn(
+														"shadow-none outline-none border-none ",
+														touchOptimized ? "h-11 w-full w-max-full" : undefined,
+													)}
+													onClick={() => setFocusMode(true)}>
+													{touchOptimized ? (
+														<SquarePenIcon data-icon="inline-start" />
+													) : (
+														<ZoomInIcon data-icon="inline-start" />
+													)}
+													{readOnlyInWorkspace ? "进入聚焦编辑" : "聚焦编辑（Q）"}
+												</Button>
+											</motion.div>
 										</div>
 									) : null}
 								</div>

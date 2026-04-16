@@ -2,7 +2,7 @@ import { motion, AnimatePresence, type Transition } from 'framer-motion'
 import { CameraIcon, FolderUpIcon, RotateCcwIcon, UploadCloudIcon, UploadIcon } from 'lucide-react'
 import { useEffect, useRef, useState, type ChangeEvent } from 'react'
 
-import { Button } from '@/components/ui/button'
+import { Button, ButtonIconSwap } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/spinner'
 import { cn } from '@/lib/utils'
 interface LandingPageProps {
@@ -82,6 +82,10 @@ export function LandingPage({
   const dragCounterRef = useRef(0)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const folderInputRef = useRef<HTMLInputElement>(null)
+  const uploadLoading = isImporting || pendingTrigger === 'upload'
+  const cameraLoading = isImporting || pendingTrigger === 'camera'
+  const fileManagerLoading = isImporting || pendingTrigger === 'file-manager' || pendingTrigger === 'upload'
+  const folderLoading = isImporting || pendingTrigger === 'folder'
 
   const savedAtLabel = recoverableSummary 
     ? new Date(recoverableSummary.savedAt).toLocaleString('zh-CN', { 
@@ -291,9 +295,15 @@ export function LandingPage({
               size="lg" 
               className="shadow-none group h-12 w-full rounded-2xl gap-3 text-base  shadow-primary/20 transition-all active:scale-[0.98] hover:shadow-primary/30 sm:h-14 sm:px-8 sm:text-lg"
               onClick={() => triggerPicker('upload', () => fileInputRef.current?.click())}
+              loading={uploadLoading}
               disabled={isImporting}
             >
-              {isImporting || pendingTrigger === 'upload' ? <Spinner className="size-5" /> : <UploadIcon className="size-5 transition-transform group-hover:-translate-y-0.5" />}
+              <ButtonIconSwap
+                loading={uploadLoading}
+                className="size-5 ml-2"
+                idleIcon={<UploadIcon className="size-5 transition-transform group-hover:-translate-y-0.5" data-icon="inline-start" />}
+                loadingIcon={<Spinner className="size-5" data-icon="inline-start" />}
+              />
               上传图片
             </Button>
           </motion.div>
@@ -311,9 +321,15 @@ export function LandingPage({
                     size="lg"
                     className="shadow-none group h-12 w-full rounded-2xl gap-3 text-base bg-background/50 backdrop-blur-sm border-border/50 transition-all active:scale-[0.98] hover:bg-background/80"
                     onClick={() => onCapturePhoto && triggerPicker('camera', onCapturePhoto)}
+                    loading={cameraLoading}
                     disabled={isImporting}
                   >
-                    {isImporting || pendingTrigger === 'camera' ? <Spinner className="size-5" /> : <CameraIcon className="size-5 transition-transform group-hover:-translate-y-0.5" />}
+                    <ButtonIconSwap
+                      loading={cameraLoading}
+                      className="size-5 ml-2"
+                      idleIcon={<CameraIcon className="size-5 transition-transform group-hover:-translate-y-0.5" data-icon="inline-start" />}
+                      loadingIcon={<Spinner className="size-5" data-icon="inline-start" />}
+                    />
                     拍摄
                   </Button>
                 </motion.div>
@@ -335,9 +351,15 @@ export function LandingPage({
                     }
                     triggerPicker('upload', () => fileInputRef.current?.click())
                   }}
+                  loading={fileManagerLoading}
                   disabled={isImporting}
                 >
-                  {isImporting || pendingTrigger === 'file-manager' || pendingTrigger === 'upload' ? <Spinner className="size-5" /> : <FolderUpIcon className="size-5 transition-transform group-hover:-translate-y-0.5" />}
+                  <ButtonIconSwap
+                    loading={fileManagerLoading}
+                    className="size-5"
+                    idleIcon={<FolderUpIcon className="size-5 transition-transform group-hover:-translate-y-0.5" data-icon="inline-start" />}
+                    loadingIcon={<Spinner className="size-5" data-icon="inline-start" />}
+                  />
                   文件管理器
                 </Button>
               </motion.div>
@@ -356,9 +378,15 @@ export function LandingPage({
                 size="lg" 
                 className="shadow-none group h-12 w-full rounded-2xl gap-3 text-base bg-background/50 backdrop-blur-sm border-border/50 transition-all active:scale-[0.98] hover:bg-background/80 sm:h-14 sm:px-8 sm:text-lg"
                 onClick={() => triggerPicker('folder', () => folderInputRef.current?.click())}
+                loading={folderLoading}
                 disabled={isImporting}
               >
-                {isImporting || pendingTrigger === 'folder' ? <Spinner className="size-5" /> : <FolderUpIcon className="size-5 transition-transform group-hover:-translate-y-0.5" />}
+                <ButtonIconSwap
+                  loading={folderLoading}
+                  className="size-5"
+                  idleIcon={<FolderUpIcon className="size-5 transition-transform group-hover:-translate-y-0.5" data-icon="inline-start" />}
+                  loadingIcon={<Spinner className="size-5" data-icon="inline-start" />}
+                />
                 导入文件夹
               </Button>
             </motion.div>

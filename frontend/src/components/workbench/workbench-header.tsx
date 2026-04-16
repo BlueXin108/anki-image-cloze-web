@@ -22,7 +22,7 @@ import {
 
 import type {WorkspaceMode} from "@/types";
 import {Badge} from "@/components/ui/badge";
-import {Button} from "@/components/ui/button";
+import {Button, ButtonIconSwap} from "@/components/ui/button";
 import {
 	Card,
 	CardContent,
@@ -350,6 +350,10 @@ export const WorkbenchHeader = memo(function WorkbenchHeader({
 			},
 		},
 	};
+	const uploadLoading = uploadTriggerPending;
+	const folderLoading = folderTriggerPending;
+	const cameraLoading = cameraTriggerPending;
+	const fileManagerLoading = fileManagerTriggerPending || (!onImportFiles && uploadTriggerPending);
 
 	return (
 		<Card data-telemetry-section="header" className="overflow-visible border-none bg-white/60 outline-0 ring-0 rounded-md">
@@ -551,8 +555,14 @@ export const WorkbenchHeader = memo(function WorkbenchHeader({
 								<Button
 									size="default"
 									className="trs-all-400 h-10 min-w-0 rounded-xl px-3 sm:px-4 border border-transparent outline-0 hover:-translate-y-0.5 active:scale-[0.98] hover:bg-foreground/80 hover:text-secondary hover:border-border shadow-none"
+									loading={uploadLoading}
 									onClick={onUploadImages}>
-									{uploadTriggerPending ? <Spinner className="size-4" data-icon="inline-start" /> : <UploadIcon className="size-4" data-icon="inline-start" />}
+									<ButtonIconSwap
+										loading={uploadLoading}
+										className="size-4"
+										idleIcon={<UploadIcon className="size-4" data-icon="inline-start" />}
+										loadingIcon={<Spinner className="size-4" data-icon="inline-start" />}
+									/>
 									系统相册
 								</Button>
 								<div className={cn('grid gap-2', onCapturePhoto ? 'grid-cols-2' : 'grid-cols-1')}>
@@ -561,8 +571,14 @@ export const WorkbenchHeader = memo(function WorkbenchHeader({
 											size="default"
 											variant="secondary"
 										className="trs-all-400 h-10 min-w-0 rounded-xl px-3 sm:px-4 border border-transparent text-muted-foreground hover:-translate-y-0.5 active:scale-[0.98] hover:bg-foreground hover:text-background hover:border-border"
+										loading={cameraLoading}
 										onClick={onCapturePhoto}>
-											{cameraTriggerPending ? <Spinner className="size-4" data-icon="inline-start" /> : <CameraIcon className="size-4" data-icon="inline-start" />}
+											<ButtonIconSwap
+												loading={cameraLoading}
+												className="size-4"
+												idleIcon={<CameraIcon className="size-4" data-icon="inline-start" />}
+												loadingIcon={<Spinner className="size-4" data-icon="inline-start" />}
+											/>
 											拍摄
 										</Button>
 									) : null}
@@ -570,8 +586,14 @@ export const WorkbenchHeader = memo(function WorkbenchHeader({
 										size="default"
 										variant="secondary"
 										className="trs-all-400 h-10 min-w-0 rounded-xl px-3 sm:px-4 border border-transparent text-muted-foreground hover:-translate-y-0.5 active:scale-[0.98] hover:bg-foreground hover:text-background hover:border-border shadow-none bg-background brightness-110"
+										loading={fileManagerLoading}
 										onClick={onImportFiles ?? onUploadImages}>
-										{fileManagerTriggerPending ? <Spinner className="size-4" data-icon="inline-start" /> : <FolderUpIcon className="size-4" data-icon="inline-start" />}
+										<ButtonIconSwap
+											loading={fileManagerLoading}
+											className="size-4"
+											idleIcon={<FolderUpIcon className="size-4" data-icon="inline-start" />}
+										loadingIcon={<Spinner className="size-4" data-icon="inline-start" />}
+										/>
 										文件管理器
 									</Button>
 								</div>
@@ -582,8 +604,14 @@ export const WorkbenchHeader = memo(function WorkbenchHeader({
 									<Button
 										size="default"
 									className="trs-all-400 h-10 w-full min-w-0 rounded-xl px-3 sm:px-4 border border-transparent hover:-translate-y-0.5 active:scale-[0.98] hover:bg-background hover:text-primary hover:border-border"
+									loading={uploadLoading}
 									onClick={onUploadImages}>
-										{uploadTriggerPending ? <Spinner className="size-6" data-icon="inline-start" /> : <UploadIcon className="size-4" data-icon="inline-start" />}
+										<ButtonIconSwap
+											loading={uploadLoading}
+											className="size-4"
+											idleIcon={<UploadIcon className="size-4" data-icon="inline-start" />}
+											loadingIcon={<Spinner className="size-4" data-icon="inline-start" />}
+										/>
 										上传图片
 									</Button>
 								</motion.div>
@@ -592,8 +620,14 @@ export const WorkbenchHeader = memo(function WorkbenchHeader({
 										size="default"
 										variant="secondary"
 									className="trs-all-400 h-10 w-full min-w-0 rounded-xl px-3 sm:px-4 border border-transparent hover:-translate-y-0.5 active:scale-[0.98] hover:bg-foreground hover:text-background hover:border-border shadow-none"
+									loading={folderLoading}
 									onClick={onImportFolder}>
-										{folderTriggerPending ? <Spinner className="size-6" data-icon="inline-start" /> : <FolderUpIcon className="size-4" data-icon="inline-start" />}
+										<ButtonIconSwap
+											loading={folderLoading}
+											className="size-4"
+											idleIcon={<FolderUpIcon className="size-4" data-icon="inline-start" />}
+											loadingIcon={<Spinner className="size-4" data-icon="inline-start" />}
+										/>
 										导入文件夹
 									</Button>
 								</motion.div>

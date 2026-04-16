@@ -824,6 +824,154 @@ function ExportPreviewPane({
 	);
 }
 
+function ExportSuccessFullscreen({
+	exportedCount,
+	lastExportDestination,
+	onKeepExportedItems,
+	onClearExportedItems,
+	successDescription,
+}: {
+	exportedCount: number;
+	lastExportDestination?: "anki" | "apkg" | "image-group";
+	onKeepExportedItems?: () => void;
+	onClearExportedItems?: () => void;
+	successDescription: string;
+}) {
+	return (
+		<DialogPortal forceMount>
+			<motion.div
+				key="success-fullscreen-portal"
+				className="px-6 fixed inset-0 z-[200] isolate flex items-center justify-center overflow-hidden pointer-events-auto"
+				initial={{ opacity: 1 }}
+				exit={{ opacity: 0, transition: { duration: 0.3, delay: 0.9 } }} // Wait for the circle to mostly shrink back before hiding completely
+			>
+				{/* Background expanding circle */}
+				{/* 先动 浅色背景 */}
+				<motion.div
+					className="absolute inset-0 z-0 bg-background backdrop-blur-md"
+					initial={{ clipPath: "circle(0vmax at 50% 50%)" }}
+					animate={{ 
+						clipPath: "circle(150vmax at 50% 50%)", 
+						transition: { duration: 1.95, ease: [0.29, 0, 0, 0.99] } 
+					}}
+					exit={{ 
+						clipPath: "circle(0vmax at 50% 125%)", 
+						transition: { duration: 1.8, ease: [0.34, 0, 0, 0.99] } ,
+						opacity:0.5
+					}}
+				/>
+				<motion.div
+					className="absolute inset-0 z-0 bg-foreground/90 backdrop-blur-md"
+					initial={{ clipPath: "circle(0vmax at 50% 50%)" }}
+					animate={{ 
+						clipPath: "circle(150vmax at 50% 50%)", 
+						transition: { duration: 1.6,delay:0.2, ease: [0.54, 0, 0, 0.99] } 
+					}}
+					exit={{ 
+						clipPath: "circle(0vmax at 50% 125%)", 
+						transition: { duration: 1.2,delay:0.1, ease: [0.54, 0, 0, 0.99] } 
+					}}
+				/>
+				
+				{/* Success content box */}
+				<motion.div
+					initial="hidden"
+					animate="visible"
+					exit="exit"
+					variants={{
+						visible: { transition: { staggerChildren: 0.09, delayChildren: 0.6 } },
+						exit: { transition: { staggerChildren: 0.05, staggerDirection: -1 } }
+					}}
+					className="relative z-10 flex w-full max-w-xl flex-col items-center p-6 text-background text-center"
+				>
+					<motion.div 
+						variants={{
+							hidden: { opacity: 0, y: 200,scale:0.5 },
+							visible: { opacity: 1, y: 0,scale:1, transition: { duration: 0.8, ease: [0.16, 1, 0.3, 1] } },
+							exit: { opacity: 0, y: 800,scale:0.5, transition: { duration: 1.4, ease: [0.54, 0, 0, 0.99] } }
+						}}
+						className="relative mb-8"
+					>
+						<div className="absolute inset-0 p-4 rounded-full bg-background/5 blur-md pointer-events-none">
+							<SuccessLottie delayMs={650} className="w-40 sm:w-44 [filter:grayscale(1)_contrast(1.08)_brightness(1.7)]" />
+						</div>
+						<div className="relative z-10 p-4 rounded-full bg-background/5">
+							<SuccessLottie delayMs={650} className="w-40 sm:w-44 [filter:grayscale(1)_contrast(1.08)_brightness(1.7)]" />
+						</div>
+					</motion.div>
+
+					<motion.h2 
+						variants={{
+							hidden: { opacity: 0, y: 150 },
+							visible: { opacity: 1, y: 0, transition: { duration: 0.8, ease: [0.16, 1, 0.3, 1] } },
+							exit: { opacity: 0, y: 800, transition: { duration: 1.4, ease: [0.54, 0, 0, 0.99] } }
+						}}
+						className="mb-4 text-2xl font-bold tracking-tight text-background"
+					>
+						导出成功
+					</motion.h2>
+
+					<motion.p 
+						variants={{
+							hidden: { opacity: 0, y: 120 },
+							visible: { opacity: 1, y: 0, transition: { duration: 0.8, ease: [0.16, 1, 0.3, 1] } },
+							exit: { opacity: 0, y: 800, transition: { duration: 1.4, ease: [0.54, 0, 0, 0.99] } }
+						}}
+						className="mb-8 text-xs leading-relaxed text-background/80 max-w-md mx-auto"
+					>
+						{successDescription}
+					</motion.p>
+
+					<motion.div 
+						variants={{
+							hidden: { opacity: 0, y: 100 },
+							visible: { opacity: 1, y: 0, transition: { duration: 0.8, ease: [0.16, 1, 0.3, 1] } },
+							exit: { opacity: 0, y: 800, transition: { duration: 1.4, ease: [0.54, 0, 0, 0.99] } }
+						}}
+						className="flex flex-wrap justify-center gap-x-8 gap-y-2 text-[14px] text-background/60 mb-10"
+					>
+						<div className="flex items-center gap-2">
+							<span>已导出图片</span>
+							<span className="font-semibold text-background/90 text-[15px]">{exportedCount}</span>
+						</div>
+						<div className="flex items-center gap-2">
+							<span>方式</span>
+							<span className="font-semibold text-background/90 text-[15px]">
+								{lastExportDestination === "anki"
+									? "AnkiConnect"
+									: lastExportDestination === "image-group"
+										? "图像组"
+										: "APKG"}
+							</span>
+						</div>
+					</motion.div>
+
+					<motion.div 
+						variants={{
+							hidden: { opacity: 0, y: 80 },
+							visible: { opacity: 1, y: 0, transition: { duration: 0.8, ease: [0.16, 1, 0.3, 1] } },
+							exit: { opacity: 0, y: 800, transition: { duration: 1.4, ease: [0.54, 0, 0, 0.99] } }
+						}}
+						className="w-full max-w-md grid grid-cols-1 sm:grid-cols-2 gap-3"
+					>
+						<Button
+							variant="outline"
+							className="h-12 w-full rounded-xl text-[15px] font-medium border-background/20 bg-transparent text-background hover:bg-background/10 hover:text-background"
+							onClick={onKeepExportedItems}>
+							保留已编辑项目
+						</Button>
+						<Button
+							className="h-12 w-full rounded-xl text-[15px] font-medium bg-background text-foreground hover:bg-background/90"
+							onClick={onClearExportedItems}>
+							清空已编辑项目
+						</Button>
+					</motion.div>
+				</motion.div>
+			</motion.div>
+		</DialogPortal>
+	);
+}
+
 export function ExportFlowDialog({
 	open,
 	onOpenChange,
@@ -1029,19 +1177,26 @@ export function ExportFlowDialog({
 				: "APKG 导出设置";
 	const successDescription =
 		lastExportDestination === "anki"
-			? "这批图片已经写进 Anki。你可以保留当前项目，或把刚导出的图片从列表里清掉。"
+			? "这批图片已经写进 Anki, 可前往Anki中检查 "
 			: lastExportDestination === "image-group"
-				? "图像组已经准备好。你可以保留当前项目，或把刚导出的图片从列表里清掉。"
-				: "APKG 卡包已经准备好。你可以保留当前项目，或把刚导出的图片从列表里清掉。";
-	const successSequenceTransition = {
-		duration: isMobileDialog ? 0.72 : 0.9,
-		ease: [0, 0.43, 0, 0.99] as [number, number, number, number],
-	};
+				? "图像组已经准备好, 可前往浏览器下载页检查"
+				: "APKG 卡包已经准备好, 可前往浏览器下载页检查";
 
 	return (
 		<Dialog open={open} onOpenChange={onOpenChange}>
 			<AnimatePresence>
-				{open && (
+				{open && stage === "success" && (
+					<ExportSuccessFullscreen
+						exportedCount={exportedCount}
+						lastExportDestination={lastExportDestination}
+						onKeepExportedItems={onKeepExportedItems}
+						onClearExportedItems={onClearExportedItems}
+						successDescription={successDescription}
+					/>
+				)}
+			</AnimatePresence>
+			<AnimatePresence>
+				{open && stage !== "success" && (
 					<DialogPortal forceMount>
 						<DialogPrimitive.Overlay asChild forceMount>
 							<motion.div
@@ -1075,7 +1230,7 @@ export function ExportFlowDialog({
 										height: isMobileDialog ? "100%" : dialogShellSize.height,
 									}}
 									exit={{
-										opacity: 0,
+										opacity: 1,
 										y: "100vh",
 										pointerEvents: "none",
 									}}
@@ -1114,13 +1269,11 @@ export function ExportFlowDialog({
 														className={cn(
 															isMobileDialog && "text-[10px] mt-0.5",
 														)}>
-														{stage === "success"
-															? "导出已经完成，可以顺手整理当前项目。"
-															: "逐张确认后，再做最后导出。"}
+														逐张确认后，再做最后导出。
 													</DialogDescription>
 												</div>
 												{/* 移动端隐藏顶部进度条，节省高度 */}
-												{!isMobileDialog && stage !== "success" && (
+												{!isMobileDialog && (
 													<div className="w-full lg:w-auto lg:shrink-0">
 														<FlowProgressCard
 															stage={stage}
@@ -1368,7 +1521,7 @@ export function ExportFlowDialog({
 															</Card>
 														</div>
 													</motion.div>
-												) : stage === "confirm" ? (
+												) : (
 													// --- 第二阶段：最终导出 (Confirm) ---
 													<motion.div
 														key="export"
@@ -1679,106 +1832,12 @@ export function ExportFlowDialog({
 															</CardContent>
 														</Card>
 													</motion.div>
-												) : (
-														<motion.div
-														key="success"
-														initial={{opacity: 0, y: 0}}
-														animate={{opacity: 1, y: 0}}
-														exit={{opacity: 0, y: 0}}
-														transition={{
-															duration: isMobileDialog ? 0.16 : 0.2,
-															ease: [0, 0.43, 0, 0.99],
-														}}
-														style={{gridArea: "1 / 1"}}
-														className={cn(
-															"flex h-auto w-full justify-center",
-															isMobileDialog ? "flex-col gap-3" : "h-full items-center",
-														)}>
-														<motion.div layout="size" className="w-full max-w-xl">
-															<Card className="flex w-full flex-col overflow-hidden border-border/70 bg-background/94 shadow-none">
-															<CardHeader className="items-center gap-3 px-5 pt-5 pb-4 text-center sm:px-6 sm:pt-6">
-																<motion.div
-																	initial={{opacity: 0, y: 22}}
-																	animate={{opacity: 1, y: 0}}
-																	transition={{
-																		...successSequenceTransition,
-																		delay: 0.06,
-																	}}
-																	className="flex h-36 w-full items-center justify-center overflow-hidden rounded-2xl bg-muted/20 px-4 py-3">
-																	<SuccessLottie className="w-40 sm:w-44" />
-																</motion.div>
-																<motion.div
-																	initial={{opacity: 0, y: 20}}
-																	animate={{opacity: 1, y: 0}}
-																	transition={{
-																		...successSequenceTransition,
-																		delay: 0.18,
-																	}}
-																	className="space-y-2">
-																	<CardTitle className="text-xl font-semibold tracking-tight">
-																		导出已完成，要清掉这批项目吗？
-																	</CardTitle>
-																	<CardDescription className="mx-auto max-w-lg text-sm leading-6 text-muted-foreground">
-																		{successDescription}
-																	</CardDescription>
-																</motion.div>
-																<motion.div
-																	initial={{opacity: 0, y: 18}}
-																	animate={{opacity: 1, y: 0}}
-																	transition={{
-																		...successSequenceTransition,
-																		delay: 0.32,
-																	}}
-																	className="flex flex-wrap justify-center gap-x-4 gap-y-1 text-[12px] text-muted-foreground/75 sm:text-[13px]">
-																	<div className="flex items-center gap-1.5">
-																		<span>已导出图片</span>
-																		<span className="font-medium text-foreground/65">{exportedCount}</span>
-																	</div>
-																	<div className="flex items-center gap-1.5">
-																		<span>方式</span>
-																		<span className="font-medium text-foreground/65">
-																			{lastExportDestination === "anki"
-																				? "AnkiConnect"
-																				: lastExportDestination === "image-group"
-																					? "图像组"
-																				: "APKG"}
-																		</span>
-																	</div>
-																</motion.div>
-															</CardHeader>
-															<CardContent className="flex flex-col gap-4 px-4 pb-4 sm:px-6 sm:pb-6">
-																<motion.div
-																	initial={{opacity: 0, y: 16}}
-																	animate={{opacity: 1, y: 0}}
-																	transition={{
-																		...successSequenceTransition,
-																		delay: 0.46,
-																	}}
-																	className="rounded-2xl bg-muted/35 px-3 py-3">
-																	<div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-																		<Button
-																			variant="outline"
-																			className="h-11 w-full rounded-xl px-4 text-sm font-medium"
-																			onClick={onKeepExportedItems}>
-																			先保留
-																		</Button>
-																		<Button
-																			className="h-11 w-full rounded-xl px-4 text-sm font-medium"
-																			onClick={onClearExportedItems}>
-																			清掉已导出项目
-																		</Button>
-																	</div>
-																</motion.div>
-															</CardContent>
-															</Card>
-														</motion.div>
-													</motion.div>
 												)}
 											</AnimatePresence>
 										</div>
 
 										{/* 3. 固定底部：移动端原生固定底栏（告别悬浮遮挡） */}
-										{isMobileDialog && stage !== "success" && (
+										{isMobileDialog && (
 											<div className="shrink-0 border-t border-border/50 bg-background/95 p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] shadow-sm z-10 transition-opacity grid">
 												<AnimatePresence initial={false}>
 													{stage === "review" ? (

@@ -90,9 +90,7 @@ export function useExportActions({
       detail: failedCount > 0 ? `本次成功 ${successCount} 项，失败 ${failedCount} 项。` : `本次已成功导出 ${successCount} 项到 Anki。`,
     })
     if (successCount > 0) {
-      toast.success('当前项目导出已完成', {
-        description: failedCount > 0 ? `成功 ${successCount} 项，失败 ${failedCount} 项。` : `本次共成功写入 ${successCount} 项。`,
-      })
+      // 成功通知已交由独立成功页展示
     }
     if (failedCount > 0) {
       const firstFailed = result.results.find((entry) => !entry.ok)
@@ -188,12 +186,7 @@ export function useExportActions({
             ? 'APKG 卡包已生成并开始下载。'
             : 'APKG 卡包已生成，请手动保存文件。',
       })
-      toast.success('APKG 卡包已生成', {
-        description:
-          delivery.result === 'downloaded'
-            ? '下载完成后，可以手动用 Anki 或 AnkiDroid 导入。'
-            : '当前浏览器没有自动触发下载，请使用下方保存入口手动处理。',
-      })
+      // 成功通知已交由独立成功页展示
       return { successCount: targets.length, failedCount: 0 }
     } catch (error) {
       updateStatusTask('export', { state: 'error', progress: 100, detail: error instanceof Error ? error.message : '生成 APKG 卡包失败。' })
@@ -215,7 +208,6 @@ export function useExportActions({
 
     try {
       const { exportDraftsAsImageGroup, shareOrDownloadFile } = await import('@/lib/image-group-export')
-      const imageGroupFormatLabel = exportFormat === 'jpeg' ? 'JPG' : exportFormat.toUpperCase()
       const { blob, fileName } = await exportDraftsAsImageGroup({
         items: targets,
         imageFormat: exportFormat,
@@ -266,14 +258,7 @@ export function useExportActions({
               ? '纯图像组压缩包已生成并开始下载。'
               : '纯图像组已生成，请手动保存压缩包。',
       })
-      toast.success('纯图像组已生成', {
-        description:
-          delivery.result === 'shared'
-            ? `已按 ${imageGroupFormatLabel} 图片组打开系统分享。`
-            : delivery.result === 'downloaded'
-              ? `已按 ${imageGroupFormatLabel} 图片组开始下载压缩包。`
-              : `已按 ${imageGroupFormatLabel} 图片组准备好手动保存入口。`,
-      })
+      // 成功通知已交由独立成功页展示
       return { successCount: targets.length, failedCount: 0 }
     } catch (error) {
       updateStatusTask('export', { state: 'error', progress: 100, detail: error instanceof Error ? error.message : '生成纯图像组失败。' })

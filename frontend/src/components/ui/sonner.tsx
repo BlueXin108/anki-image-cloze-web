@@ -7,6 +7,8 @@ import { InfoIcon, TriangleAlertIcon, OctagonXIcon } from "lucide-react"
 import { Spinner } from "@/components/ui/spinner"
 import { SuccessLottie } from "@/components/ui/success-lottie"
 
+const SUCCESS_TOAST_ICON_DELAY_MS = 350
+
 const Toaster = ({ ...props }: ToasterProps) => {
   const { theme = "system" } = useTheme()
 
@@ -16,7 +18,7 @@ const Toaster = ({ ...props }: ToasterProps) => {
       className="toaster group !z-[260] pointer-events-auto"
       icons={{
         success: (
-          <SuccessLottie className="size-full shrink-0" />
+          <SuccessLottie className="size-full shrink-0" delayMs={SUCCESS_TOAST_ICON_DELAY_MS} />
         ),
         info: (
           <InfoIcon className="size-4" />

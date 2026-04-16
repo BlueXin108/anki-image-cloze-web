@@ -4,7 +4,7 @@ import lottie from 'lottie-web'
 import successLottie from '@/assets/lottie/success.json'
 import { cn } from '@/lib/utils'
 
-export function SuccessLottie({ className }: { className?: string }) {
+export function SuccessLottie({ className, delayMs }: { className?: string; delayMs?: number }) {
   const containerRef = useRef<HTMLDivElement | null>(null)
 
   useEffect(() => {
@@ -14,14 +14,24 @@ export function SuccessLottie({ className }: { className?: string }) {
       container: containerRef.current,
       renderer: 'svg',
       loop: false,
-      autoplay: true,
+      autoplay: !delayMs,
       animationData: successLottie,
     })
+
+    if (delayMs) {
+      const timer = setTimeout(() => {
+        instance.play()
+      }, delayMs)
+      return () => {
+        clearTimeout(timer)
+        instance.destroy()
+      }
+    }
 
     return () => {
       instance.destroy()
     }
-  }, [])
+  }, [delayMs])
 
   return (
     <div
