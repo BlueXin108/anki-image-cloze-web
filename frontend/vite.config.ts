@@ -5,6 +5,8 @@ import react from '@vitejs/plugin-react'
 import { defineConfig } from 'vite'
 import { reactClickToComponent } from "vite-plugin-react-click-to-component";
 
+import { cloudflare } from "@cloudflare/vite-plugin";
+
 // https://vite.dev/config/
 function hashString(value: string): string {
   let hash = 2166136261
@@ -140,7 +142,13 @@ function pwaServiceWorkerPlugin(): Plugin {
 }
 
 export default defineConfig({
-  plugins: [react(), tailwindcss(), pwaServiceWorkerPlugin(), reactClickToComponent()],
+  plugins: [
+    react(),
+    tailwindcss(),
+    pwaServiceWorkerPlugin(),
+    reactClickToComponent(),
+    cloudflare()
+  ],
   optimizeDeps: {
     // Keep Radix out of the prebundle cache so our compose-refs alias is
     // always resolved from source instead of being frozen into .vite deps.
