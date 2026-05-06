@@ -306,10 +306,9 @@ export const StatusCapsule = memo(function StatusCapsule({
                     className={cn(
                       'relative flex size-6 items-center justify-center rounded-full border border-background transition-transform hover:z-10 hover:scale-[1.01] cursor-default',
                       capsuleToneClass(task),
-                      task.state === 'idle' && 'border-dashed',
-                      /* 确保第一个元素不被后面的盖住，保持视觉层级 */
-                      `z-[${tasks.length - index}]`
+                      task.state === 'idle' && 'border-dashed'
                     )}
+                    style={{ zIndex: tasks.length - index }}
                   >
                     {taskIcon(task)}
                   </span>

@@ -1,9 +1,9 @@
-import { motion, useSpring, useTransform, useMotionValue } from 'framer-motion'
+import { motion, useSpring, useTransform, useMotionValue, useReducedMotion } from 'framer-motion'
 import { MousePointer2Icon } from 'lucide-react'
 import { useEffect, useMemo, useRef } from 'react'
 
-const PARTICLE_COUNT_PC = 16
-const PARTICLE_COUNT_MOBILE = 6
+const PARTICLE_COUNT_PC = 6
+const PARTICLE_COUNT_MOBILE = 3
 
 type Particle = {
   id: number
@@ -205,6 +205,7 @@ function ParticleItem({ p, mouseX, mouseY, gyroX, gyroY, sceneSpringX, sceneSpri
   sceneSpringY: any,
 }) {
   const ref = useRef<HTMLDivElement>(null)
+  const prefersReduced = useReducedMotion()
   const angle = useSpring(p.baseRotation, { stiffness: 40, damping: 20 })
 
   useEffect(() => {
@@ -240,24 +241,21 @@ function ParticleItem({ p, mouseX, mouseY, gyroX, gyroY, sceneSpringX, sceneSpri
   return (
     <motion.div
       ref={ref}
-      initial={{ 
-        left: `${p.x}vw`, 
-        top: `${p.y}vh`, 
-        rotate: p.baseRotation, 
-        opacity: 0,
-        scale: 0.8 
+      initial={{
+        left: `${p.x}vw`,
+        top: `${p.y}vh`,
+        rotate: p.baseRotation,
+        opacity: baseOpacity,
       }}
-      animate={{
+      animate={prefersReduced ? {} : {
         x: [0, p.driftX, 0],
         y: [0, p.driftY, 0],
         opacity: [baseOpacity, peakOpacity, baseOpacity],
-        scale: [1, 1.045 + p.depth * 0.02, 1],
       }}
-      transition={{
+      transition={prefersReduced ? {} : {
         x: { duration: p.duration, repeat: Infinity, repeatType: 'mirror', ease: [0.54, 0, 0, 0.99], delay: p.delay },
         y: { duration: p.duration * 1.18, repeat: Infinity, repeatType: 'mirror', ease: [0.54, 0, 0, 0.99], delay: p.delay / 2 },
         opacity: { duration: 8, repeat: Infinity, ease: [0.54, 0, 0, 0.99], delay: p.delay },
-        scale: { duration: 8.8, repeat: Infinity, ease: [0.54, 0, 0, 0.99], delay: p.delay / 1.4 },
       }}
       className="absolute flex items-center justify-center text-primary/40"
       style={{

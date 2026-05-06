@@ -13,13 +13,14 @@ import {
 	ImageDownIcon,
 	Loader2Icon,
 	SquarePenIcon,
-	ZoomInIcon,
 	CropIcon,
+	ZoomInIcon,
 } from "lucide-react";
 import {motion, AnimatePresence} from "framer-motion";
 
 import {ImageEditor} from "@/components/editor/image-editor";
 import {FocusEditorDialog} from "@/components/workbench/focus-editor-dialog";
+import {ImmersiveFocusEditor} from "@/components/workbench/immersive-focus-editor";
 import {Button} from "@/components/ui/button";
 import {
 	Card,
@@ -63,6 +64,7 @@ interface ManualWorkspaceProps {
 	onEditorHoverChange?: (hovered: boolean) => void;
 	readOnlyInWorkspace?: boolean;
 	touchOptimized?: boolean;
+	isTablet?: boolean;
 	onPreviousItem?: () => void;
 	onNextItem?: () => void;
 	canGoPrevious?: boolean;
@@ -243,6 +245,7 @@ export const ManualWorkspace = memo(function ManualWorkspace({
 	onEditorHoverChange,
 	readOnlyInWorkspace = false,
 	touchOptimized = false,
+	isTablet = false,
 	onPreviousItem,
 	onNextItem,
 	canGoPrevious = false,
@@ -272,6 +275,17 @@ export const ManualWorkspace = memo(function ManualWorkspace({
 	const [shortcutOverlayVisible, setShortcutOverlayVisible] = useState(false);
 	const [mounted, setMounted] = useState(false);
 	const focusModeInitializedRef = useRef(false);
+
+	const [viewportWidth, setViewportWidth] = useState(() =>
+		typeof window === "undefined" ? 0 : window.innerWidth,
+	);
+
+	useEffect(() => {
+		const updateViewportWidth = () => setViewportWidth(window.innerWidth);
+		updateViewportWidth();
+		window.addEventListener("resize", updateViewportWidth);
+		return () => window.removeEventListener("resize", updateViewportWidth);
+	}, []);
 
 	// 确保 Portal 仅在客户端渲染挂载
 	useEffect(() => {
@@ -450,6 +464,10 @@ export const ManualWorkspace = memo(function ManualWorkspace({
 	);
 	const selectedItemPreparing = selectedItem.image.status === "preparing";
 
+	const isTouchCapable = typeof navigator !== 'undefined' && navigator.maxTouchPoints > 0;
+	const tabletLikeLayout = isTablet || (touchOptimized && viewportWidth >= 768) || (isTouchCapable && viewportWidth >= 768);
+	const showTouchWorkspaceHeader = touchOptimized;
+
 	const openPreview = (
 		title: string,
 		description: string,
@@ -481,27 +499,7 @@ export const ManualWorkspace = memo(function ManualWorkspace({
 					exit={{opacity: 0, scale: 0.98}}
 					transition={{duration: 0.35, ease: [0, 0.43, 0, 0.99]}}
 					className="w-full h-full relative">
-						<div className={cn("absolute top-0 right-0 z-100 h-0 w-full flex justify-end overflow-visible",touchOptimized&&"hidden",)}>
-							<Button
-								variant={touchOptimized ? "ghost" : "outline"}
-								size={touchOptimized ? "default" : "sm"}
-								className={cn(
-									"shadow-none outline-none border-none",
-									// 使用 translate-y-[-100%] 让按钮向上偏移出父容器边界，
-									// 或者根据需要调整 top 值（如 top-2 right-2）
-									"translate-y-2 -translate-x-2", 
-									touchOptimized ? "h-11 w-full shadow-md" : "bg-white/0 backdrop-blur-sm",
-								)}
-								onClick={() => setFocusMode(true)}
-							>
-								{touchOptimized ? (
-									<SquarePenIcon data-icon="inline-start" />
-								) : (
-									<ZoomInIcon data-icon="inline-start" />
-								)}
-								{readOnlyInWorkspace ? "进入聚焦编辑" : "聚焦编辑（Q）"}
-							</Button>
-						</div>
+						
 					<ImageEditor
 						draft={selectedItem.draft}
 						sourceImageUrl={selectedItem.image.source_url || ""}
@@ -517,10 +515,14 @@ export const ManualWorkspace = memo(function ManualWorkspace({
 								: undefined
 						}
 						focusLayout={false}
-						hideMetaBar
+						hideMetaBar={!tabletLikeLayout}
 						readOnly={readOnlyInWorkspace && mode === "normal"}
 						disableWheelResize={touchOptimized}
-						touchOptimized={touchOptimized && mode === "focus"}
+						touchOptimized={
+							tabletLikeLayout
+								? (touchOptimized && !workbenchSettings.tabletMouseMode)
+								: touchOptimized && mode === "focus"
+						}
 						onPreviousItem={onPreviousItem}
 						onNextItem={onNextItem}
 						canGoPrevious={canGoPrevious}
@@ -530,6 +532,20 @@ export const ManualWorkspace = memo(function ManualWorkspace({
 								setIsEditorHovered(hovered);
 						}}
 						allowLongPressDelete={workbenchSettings.mobileLongPressDeleteMask}
+						modernFloatingToolbar={modernFloatingToolbar}
+						onFocusEdit={(!touchOptimized || tabletLikeLayout) ? () => setFocusMode(true) : undefined}
+						focusEditLabel={readOnlyInWorkspace ? "进入聚焦编辑" : "聚焦编辑（Q）"}
+						showMouseModeSwitch={tabletLikeLayout}
+						isMouseMode={workbenchSettings.tabletMouseMode}
+						onMouseModeChange={(checked) => {
+							if (onWorkbenchSettingsChange) {
+								onWorkbenchSettingsChange({
+									...workbenchSettings,
+									tabletMouseMode: checked,
+								});
+							}
+						}}
+						forceTopToolbar={tabletLikeLayout}
 					/>
 				</motion.div>
 			</AnimatePresence>
@@ -549,7 +565,7 @@ export const ManualWorkspace = memo(function ManualWorkspace({
       */}
 
 			{mounted &&
-				!touchOptimized &&
+				(!touchOptimized || (tabletLikeLayout && workbenchSettings.tabletMouseMode)) &&
 				createPortal(
 					<div
 						className={cn(
@@ -603,8 +619,8 @@ export const ManualWorkspace = memo(function ManualWorkspace({
 						<Card className="border-border/70 bg-background/80 py-0 pb-2 ring-0">
 							<CardHeader
 								className={cn(
-									//桌面端隐藏
-									"gap-3 pt-4 transition-[opacity,filter] duration-200 border-b-[0.8px] border-border/70","flex sm:hidden",
+									"gap-3 pt-4 transition-[opacity,filter] duration-200 border-b-[0.8px] border-border/70",
+									showTouchWorkspaceHeader ? "hidden" : "hidden",
 									!touchOptimized &&
 										isEditorHovered &&
 										"opacity-60 saturate-75",
@@ -637,7 +653,7 @@ export const ManualWorkspace = memo(function ManualWorkspace({
 										) : null}
 									</div>
 
-									{!selectedItemPreparing ? (
+									{!selectedItemPreparing && !tabletLikeLayout ? (
 										<div className="flex justify-center items-center w-full">
 											<motion.div
 												className={cn("w-full", !touchOptimized && "contents")}
@@ -859,25 +875,29 @@ export const ManualWorkspace = memo(function ManualWorkspace({
 				</DialogContent>
 			</Dialog>
 
-			<FocusEditorDialog
-				open={focusMode}
-				onOpenChange={setFocusMode}
-				item={selectedItem}
-				cardCount={expectedCardCount}
-				onMasksCommit={onMasksCommit}
-				onCropCommit={onCropCommit}
-				onPreviousItem={onPreviousItem}
-				onNextItem={onNextItem}
-				canGoPrevious={canGoPrevious}
-				canGoNext={canGoNext}
-				previousLabel=""
-				nextLabel=""
-				touchOptimized={touchOptimized}
-				disableWheelResize={touchOptimized}
-				modernFloatingToolbar={modernFloatingToolbar}
-				workbenchSettings={workbenchSettings}
-				onWorkbenchSettingsChange={onWorkbenchSettingsChange}
-			/>
+			{workbenchSettings?.experimentalFullscreenEditor && focusMode ? (
+				<ImmersiveFocusEditor onClose={() => setFocusMode(false)} />
+			) : (
+				<FocusEditorDialog
+					open={focusMode}
+					onOpenChange={setFocusMode}
+					item={selectedItem}
+					cardCount={expectedCardCount}
+					onMasksCommit={onMasksCommit}
+					onCropCommit={onCropCommit}
+					onPreviousItem={onPreviousItem}
+					onNextItem={onNextItem}
+					canGoPrevious={canGoPrevious}
+					canGoNext={canGoNext}
+					previousLabel=""
+					nextLabel=""
+					touchOptimized={tabletLikeLayout ? (touchOptimized && !workbenchSettings.tabletMouseMode) : touchOptimized}
+										disableWheelResize={touchOptimized}
+					modernFloatingToolbar={modernFloatingToolbar}
+					workbenchSettings={workbenchSettings}
+					onWorkbenchSettingsChange={onWorkbenchSettingsChange}
+				/>
+			)}
 		</div>
 	);
 });

@@ -105,6 +105,12 @@ interface ImageEditorProps {
   onImageHoverChange?: (hovered: boolean) => void
   modernFloatingToolbar?: boolean
   allowLongPressDelete?: boolean
+  onFocusEdit?: () => void
+  focusEditLabel?: string
+  showMouseModeSwitch?: boolean
+  isMouseMode?: boolean
+  onMouseModeChange?: (checked: boolean) => void
+  forceTopToolbar?: boolean
 }
 
 function resolveDisplayedCrop(draft: CardDraft, imageWidth: number, imageHeight: number): BBox {
@@ -400,6 +406,12 @@ export function ImageEditor({
   onImageHoverChange,
   modernFloatingToolbar = true,
   allowLongPressDelete = true,
+  onFocusEdit,
+  focusEditLabel,
+  showMouseModeSwitch,
+  isMouseMode,
+  onMouseModeChange,
+  forceTopToolbar,
 }: ImageEditorProps) {
   const mobileModeEnabled = _touchOptimized && !readOnly
   const normalizedDraftMasks = normalizeMaskGroups(draft.masks)
@@ -1346,6 +1358,11 @@ export function ImageEditor({
       onToggleMaskOverlay={() => setShowMaskOverlay((current) => !current)}
       onSubmitCrop={() => void onCropCommit(localCrop)}
       onReset={() => setResetConfirmOpen(true)}
+      onFocusEdit={onFocusEdit}
+      focusEditLabel={focusEditLabel}
+      showMouseModeSwitch={showMouseModeSwitch}
+      isMouseMode={isMouseMode}
+      onMouseModeChange={onMouseModeChange}
     />
   ) : null
 
@@ -1358,7 +1375,7 @@ export function ImageEditor({
       }}
       style={_touchOptimized ? { WebkitTouchCallout: 'none' } : undefined}
     >
-      {useModernUI && !_touchOptimized && !focusLayout ? (
+      {useModernUI && (!_touchOptimized || forceTopToolbar) && !focusLayout ? (
         <div className="flex shrink-0 w-full justify-center">{modernToolbarElement}</div>
       ) : null}
       
@@ -1423,7 +1440,7 @@ export function ImageEditor({
             _touchOptimized
               ? cn(
                   'overflow-y-auto overflow-x-hidden scrollbar-hide [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden',
-                  selectionModeActive || mobileCropMode || mobileSortMode ? 'touch-none' : '[touch-action:pinch-zoom]',
+                  selectionModeActive || mobileCropMode || mobileSortMode ? 'touch-none' : '[touch-action:pan-y_pinch-zoom]',
                 )
               : 'overflow-hidden touch-none',
             focusLayout && 'min-h-0 flex flex-1 p-2',
@@ -1745,7 +1762,7 @@ export function ImageEditor({
         ) : null}
       </div>
       
-      {useModernUI && _touchOptimized ? (
+      {useModernUI && _touchOptimized && !forceTopToolbar ? (
         <div className="shrink-0 pt-2 pb-1 relative z-[60]">
           {modernToolbarElement}
         </div>

@@ -44,10 +44,10 @@ if (typeof window !== 'undefined') {
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <TooltipProvider>
-      <App />
-      <Analytics />
-      <SpeedInsights />
-      <Toaster closeButton expand position="top-right" />
+        <App />
+        <Analytics />
+        <SpeedInsights />
+        <Toaster closeButton expand position="top-right" />
     </TooltipProvider>
   </StrictMode>,
 )

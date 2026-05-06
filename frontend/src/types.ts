@@ -88,6 +88,8 @@ export interface WorkbenchSettings {
   disableAnimations: boolean
   modernFloatingToolbar: boolean
   mobileLongPressDeleteMask: boolean
+  tabletMouseMode: boolean
+  experimentalFullscreenEditor: boolean
 }
 
 export interface PersistedDraftListItem {
