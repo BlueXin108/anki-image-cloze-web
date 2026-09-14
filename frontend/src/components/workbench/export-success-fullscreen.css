@@ -1,0 +1,40 @@
+.export-success-fullscreen {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  isolation: isolate;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  padding: 0 1.5rem;
+  overflow: hidden;
+  pointer-events: auto;
+}
+
+.export-success-wave {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.export-success-wave-position {
+  position: absolute;
+  inset: 0;
+  will-change: transform;
+}
+
+.export-success-ink-disc {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  /* 保留原设计的 150vmax 半径；尺寸由浏览器计算，动画只缩放真实圆盘 */
+  width: max(300vw, 300vh);
+  height: max(300vw, 300vh);
+  margin-left: min(-150vw, -150vh);
+  margin-top: min(-150vw, -150vh);
+  border-radius: 50%;
+  will-change: transform;
+}
