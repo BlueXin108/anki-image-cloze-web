@@ -13,8 +13,6 @@ export const DEFAULT_WORKBENCH_SETTINGS: WorkbenchSettings = {
   disableAnimations: false,
   modernFloatingToolbar: true,
   mobileLongPressDeleteMask: false,
-  tabletMouseMode: false,
-  experimentalFullscreenEditor: true,
 }
 
 export function normalizeWorkbenchSettings(
@@ -31,8 +29,6 @@ export function normalizeWorkbenchSettings(
     disableAnimations: Boolean(value?.disableAnimations ?? DEFAULT_WORKBENCH_SETTINGS.disableAnimations),
     modernFloatingToolbar: Boolean(value?.modernFloatingToolbar ?? DEFAULT_WORKBENCH_SETTINGS.modernFloatingToolbar),
     mobileLongPressDeleteMask: Boolean(value?.mobileLongPressDeleteMask ?? DEFAULT_WORKBENCH_SETTINGS.mobileLongPressDeleteMask),
-    tabletMouseMode: Boolean(value?.tabletMouseMode ?? DEFAULT_WORKBENCH_SETTINGS.tabletMouseMode),
-    experimentalFullscreenEditor: Boolean(value?.experimentalFullscreenEditor ?? DEFAULT_WORKBENCH_SETTINGS.experimentalFullscreenEditor),
   }
 }
 
@@ -92,7 +88,7 @@ export function resolveExportFormatPolicy(items: Array<Pick<DraftListItem, 'imag
     return {
       allowedFormats: ['webp'],
       lockedReason: '这批图片里包含已执行过项目压缩的图片。为了避免把压缩后的图再包装成 PNG 或 JPG，当前只保留 WebP。',
-      summary: '',
+      summary: '这批图片里包含已经压缩过的项目图片，导出只保留 WebP。',
     }
   }
 
@@ -101,7 +97,7 @@ export function resolveExportFormatPolicy(items: Array<Pick<DraftListItem, 'imag
     return {
       allowedFormats: ['webp'],
       lockedReason: '这批图片在导入时已经启用了压缩。为了避免把压缩后的图重新生成为 PNG 或 JPG，当前只保留 WebP。',
-      summary: '',
+      summary: '这批图片在导入时已经压缩过，导出只保留 WebP。',
     }
   }
 

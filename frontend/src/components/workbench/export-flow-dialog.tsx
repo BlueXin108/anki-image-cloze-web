@@ -1196,8 +1196,8 @@ export function ExportFlowDialog({
 																	compact={isMobileDialog}
 																	generationMode={generationMode}
 																	onFocusModeChange={onFocusModeChange}
-											workbenchSettings={workbenchSettings}
-											onWorkbenchSettingsChange={onWorkbenchSettingsChange}
+																	workbenchSettings={workbenchSettings}
+																	onWorkbenchSettingsChange={onWorkbenchSettingsChange}
 																/>
 															)}
 

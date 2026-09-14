@@ -156,8 +156,8 @@ export default function App() {
   const [statusTasks, setStatusTasks] = useState<Record<StatusTaskId, StatusTaskState>>(() => createInitialStatusTasks())
   const [projectCompressionCount, setProjectCompressionCount] = useState(0)
   const [ankiHelpOpen, setAnkiHelpOpen] = useState(false)
-  const [workbenchSettings, setWorkbenchSettings] = useState<WorkbenchSettings>(() => loadWorkbenchSettings())
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [workbenchSettings, setWorkbenchSettings] = useState<WorkbenchSettings>(() => loadWorkbenchSettings())
   const deckPoolInputRef = useRef<HTMLInputElement | null>(null)
   const cameraInputRef = useRef<HTMLInputElement | null>(null)
   const manualLayoutRef = useRef<HTMLDivElement | null>(null)
@@ -208,10 +208,6 @@ export default function App() {
   const [pendingImportTrigger, setPendingImportTrigger] = useState<'upload' | 'folder' | 'file-manager' | 'camera' | null>(null)
   const previousShowLandingRef = useRef(true)
   const importTriggerResetTimerRef = useRef<number | null>(null)
-
-  const activeTouchOptimized = deviceProfile.isTablet
-    ? !workbenchSettings.tabletMouseMode
-    : deviceProfile.isMobileDevice && deviceProfile.isTouchLike
 
   const selectedItem = useMemo(
     () => draftItems.find((item) => item.draft.id === selectedDraftId) ?? draftItems[0] ?? null,
@@ -658,6 +654,10 @@ export default function App() {
   }, [dismissRestoreProjectPrompt])
 
   const handleRestorePromptReady = useCallback((saved: RecoverableProjectSummary, restoreAction: () => Promise<void>) => {
+    void saved
+    void restoreAction
+    return
+
     // 如果没有项目（在首屏），则不主动弹窗
     if (draftItemsRef.current.length === 0) return
 
@@ -1122,7 +1122,7 @@ export default function App() {
                     ankiHelpOpen={ankiHelpOpen}
                     onAnkiHelpOpenChange={setAnkiHelpOpen}
                     onOpenAnkiHelp={() => setAnkiHelpOpen(true)}
-                    touchOptimized={activeTouchOptimized}
+                    touchOptimized={deviceProfile.isTouchLike}
                     uploadTriggerPending={pendingImportTrigger === 'upload'}
                     folderTriggerPending={pendingImportTrigger === 'folder'}
                     fileManagerTriggerPending={pendingImportTrigger === 'file-manager'}
@@ -1204,11 +1204,10 @@ export default function App() {
                             focusShortcutEnabled={!exportDialogOpen}
                             onEditorHoverChange={setEditorHoverActive}
                             readOnlyInWorkspace={deviceProfile.isMobileDevice}
-                            touchOptimized={activeTouchOptimized}
-                            isTablet={deviceProfile.isTablet}
+                            touchOptimized={deviceProfile.isTouchLike}
                             workbenchSettings={workbenchSettings}
                             onWorkbenchSettingsChange={(next) => setWorkbenchSettings(normalizeWorkbenchSettings(next))}
-onPreviousItem={selectPreviousDraft}
+                            onPreviousItem={selectPreviousDraft}
                             onNextItem={selectNextDraft}
                             canGoPrevious={selectedDraftIndex > 0}
                             canGoNext={selectedDraftIndex >= 0 && selectedDraftIndex < activeDraftItems.length - 1}
@@ -1240,8 +1239,6 @@ onPreviousItem={selectPreviousDraft}
                               generationMode={workbenchSettings.cardGenerationMode}
                               focusShortcutEnabled={!exportDialogOpen}
                               onEditorHoverChange={setEditorHoverActive}
-                              touchOptimized={activeTouchOptimized}
-                              isTablet={deviceProfile.isTablet}
                               workbenchSettings={workbenchSettings}
                               onWorkbenchSettingsChange={(next) => setWorkbenchSettings(normalizeWorkbenchSettings(next))}
                               onPreviousItem={selectPreviousDraft}
@@ -1426,10 +1423,10 @@ onPreviousItem={selectPreviousDraft}
             reviewedDraftIds={reviewedDraftIds}
             deckInput={deckInput}
             tagsInput={tagsInput}
-            deckQuickPicks={deckQuickPicks}
             onDeckInputChange={setDeckInput}
             onTagsInputChange={setTagsInput}
             deckOptions={deckOptions}
+            deckQuickPicks={deckQuickPicks}
             ankiState={ankiState}
             onRefreshDecks={() => void run('refresh-anki', () => refreshAnkiConnection({ source: 'manual' }))}
             onCreateDeck={() => void run('create-deck', () => createCurrentDeckInAnki(deckInput))}
@@ -1459,19 +1456,21 @@ onPreviousItem={selectPreviousDraft}
             imageGroupFormat={workbenchSettings.imageGroupExportFormat}
             imageGroupQuality={workbenchSettings.imageGroupExportQuality}
             onImageGroupFormatChange={(value) =>
-              setWorkbenchSettings((current) => normalizeWorkbenchSettings({ ...current, imageGroupExportFormat: value }))}
+              setWorkbenchSettings((current) => normalizeWorkbenchSettings({ ...current, imageGroupExportFormat: value }))
+            }
             onImageGroupQualityChange={(value) =>
-              setWorkbenchSettings((current) => normalizeWorkbenchSettings({ ...current, imageGroupExportQuality: value }))}
+              setWorkbenchSettings((current) => normalizeWorkbenchSettings({ ...current, imageGroupExportQuality: value }))
+            }
             allowedExportFormats={exportFormatPolicy.allowedFormats}
             exportFormatLockReason={exportFormatPolicy.lockedReason}
             exportFormatSummary={exportFormatPolicy.summary}
             allowDirectAnki={deviceProfile.canDirectAnki}
             deckPickerMode={deviceProfile.canDirectAnki ? 'anki' : 'local'}
-            touchOptimized={activeTouchOptimized}
+            touchOptimized={deviceProfile.isTouchLike}
             onOpenAnkiHelp={() => setAnkiHelpOpen(true)}
             generationMode={workbenchSettings.cardGenerationMode}
-            onExportDeckPoolBackup={deviceProfile.isMobileDevice ? exportDeckPoolBackupFile : undefined}
-            onImportDeckPoolBackup={deviceProfile.isMobileDevice ? () => deckPoolInputRef.current?.click() : undefined}
+            workbenchSettings={workbenchSettings}
+            onWorkbenchSettingsChange={(next) => setWorkbenchSettings(normalizeWorkbenchSettings(next))}
             exportedDraftIds={exportCleanupDraftIds}
             lastExportDestination={lastExportDestination}
             onKeepExportedItems={dismissExportSuccess}
@@ -1480,8 +1479,6 @@ onPreviousItem={selectPreviousDraft}
               removeDraftItemsByIds(draftIds)
               toast.success('已清掉刚刚导出的项目', { description: '当前浏览器里的项目列表已经同步收干净。' })
             }}
-            workbenchSettings={workbenchSettings}
-            onWorkbenchSettingsChange={(next) => setWorkbenchSettings(normalizeWorkbenchSettings(next))}
           />
         ) : null}
 

@@ -1,4 +1,3 @@
-import { AnimatePresence, motion } from 'framer-motion'
 import { useEffect, useMemo, useState } from 'react'
 import {
   CheckIcon,
@@ -258,43 +257,30 @@ function SuggestionList({
   if (decks.length === 0) return null
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 8 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: 8, scale: 0.98 }}
-      transition={{ duration: 0.3, ease: [0, 0.43, 0, 0.99] }}
-      className="absolute bottom-full right-0 left-0 z-50 mb-2 overflow-hidden rounded-2xl border border-border/70 bg-background shadow-lg shadow-black/5"
-    >
+    <div className="absolute bottom-full right-0 left-0 z-50 mb-2 overflow-hidden rounded-2xl border border-border/70 bg-background shadow-lg shadow-black/5">
       <ScrollArea className="max-h-56">
         <div className="flex flex-col gap-1 p-2">
           {decks.map((deck, index) => (
-            <motion.div
+            <button
               key={deck}
-              layout
+              type="button"
               onPointerDown={(event) => {
                 event.preventDefault()
                 onPick(deck)
               }}
               onMouseEnter={() => onActiveIndexChange(index)}
               className={cn(
-                'relative flex cursor-pointer items-center gap-2 rounded-xl px-3 py-2 text-left text-sm transition-colors',
-                index !== activeIndex && 'hover:bg-muted/40',
+                'flex items-center gap-2 rounded-xl px-3 py-2 text-left text-sm transition',
+                activeIndex === index ? 'bg-muted/55 text-foreground' : 'hover:bg-muted/40',
               )}
             >
-              {index === activeIndex && (
-                <motion.div
-                  layoutId="highlight"
-                  className="absolute inset-0 rounded-xl bg-muted/55"
-                  transition={{ type: 'spring', stiffness: 500, damping: 35, mass: 0.9 }}
-                />
-              )}
-              <SparklesIcon className="relative size-4 text-amber-600" />
-              <span className="relative truncate">{deck}</span>
-            </motion.div>
+              <SparklesIcon className="size-4 text-amber-600" />
+              <span className="truncate">{deck}</span>
+            </button>
           ))}
         </div>
       </ScrollArea>
-    </motion.div>
+    </div>
   )
 }
 
@@ -361,16 +347,14 @@ function DeckNameInput({
         }}
         placeholder={placeholder}
       />
-      <AnimatePresence>
-        {focused ? (
-          <SuggestionList
-            decks={suggestions}
-            onPick={onSuggestionPick ?? onValueChange}
-            activeIndex={activeSuggestionIndex}
-            onActiveIndexChange={setActiveSuggestionIndex}
-          />
-        ) : null}
-      </AnimatePresence>
+      {focused ? (
+        <SuggestionList
+          decks={suggestions}
+          onPick={onSuggestionPick ?? onValueChange}
+          activeIndex={activeSuggestionIndex}
+          onActiveIndexChange={setActiveSuggestionIndex}
+        />
+      ) : null}
     </div>
   )
 }

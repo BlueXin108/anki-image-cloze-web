@@ -1,4 +1,3 @@
-import type { WorkbenchSettings } from '@/types'
 import { useEffect, useState } from 'react'
 import {
   BlocksIcon,
@@ -15,6 +14,7 @@ import {
 
 import ankiHelpImage from '@/assets/ankiHelp-1.webp'
 import { CARD_GENERATION_MODE_OPTIONS } from '@/lib/card-generation'
+import type { WorkbenchSettings } from '@/types'
 
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
